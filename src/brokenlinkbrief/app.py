@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from apps.brokenlinkbrief.package import (
+from brokenlinkbrief.package import (
     get_configured_scan_token,
     is_scan_authorized,
     render_csv,
@@ -179,3 +179,10 @@ def run(host: str = "127.0.0.1", port: int = 8000) -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         server.server_close()
+
+
+if __name__ == "__main__":
+    import os
+
+    port = int(os.environ.get("PORT", "8000"))
+    run(host="0.0.0.0", port=port)

@@ -1,7 +1,7 @@
 """BrokenLinkBrief export helpers: markdown and future renderers."""
 from __future__ import annotations
 
-from apps.brokenlinkbrief.package import (
+from brokenlinkbrief.package import (
     render_csv,
     render_markdown,  # re-export canonical implementation
 )

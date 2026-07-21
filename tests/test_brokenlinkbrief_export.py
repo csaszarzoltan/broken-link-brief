@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import inspect
 
-from apps.brokenlinkbrief.export import render_markdown
-from apps.brokenlinkbrief.package import LinkResult
+from brokenlinkbrief.export import render_markdown
+from brokenlinkbrief.package import LinkResult
 
 
 def test_interface_render_markdown_importable() -> None:

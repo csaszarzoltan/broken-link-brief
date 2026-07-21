@@ -11,9 +11,9 @@ from http.server import HTTPServer
 
 import pytest
 
-from apps.brokenlinkbrief.app import _Handler
-from apps.brokenlinkbrief.export import render_markdown
-from apps.brokenlinkbrief.package import LinkResult, render_csv
+from brokenlinkbrief.app import _Handler
+from brokenlinkbrief.export import render_markdown
+from brokenlinkbrief.package import LinkResult, render_csv
 
 
 def test_interface_render_csv_importable() -> None:
@@ -92,7 +92,7 @@ def test_behavior_scan_endpoint_json_fallback_when_format_csv_requested() -> Non
     def fake_scan(url: str, timeout: float = 10.0):
         return [LinkResult(url=url, status=200, reason="OK", location=None)]
 
-    monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+    monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))

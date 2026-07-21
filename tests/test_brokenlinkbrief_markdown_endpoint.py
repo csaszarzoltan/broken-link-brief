@@ -26,9 +26,9 @@ from http.server import HTTPServer
 
 import pytest
 
-from apps.brokenlinkbrief.app import _Handler
-from apps.brokenlinkbrief.export import render_markdown as render_markdown_from_export
-from apps.brokenlinkbrief.package import LinkResult, render_markdown
+from brokenlinkbrief.app import _Handler
+from brokenlinkbrief.export import render_markdown as render_markdown_from_export
+from brokenlinkbrief.package import LinkResult, render_markdown
 
 # ---------------------------------------------------------------------------
 # Interface tests — these MUST pass immediately (render_markdown is shipped).
@@ -76,7 +76,7 @@ def test_behavior_scan_endpoint_markdown_when_format_markdown_requested() -> Non
     def fake_scan(url: str, timeout: float = 10.0):
         return list(expected_results)
 
-    monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+    monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
@@ -118,7 +118,7 @@ def test_behavior_scan_endpoint_json_fallback_when_format_unknown() -> None:
     def fake_scan(url: str, timeout: float = 10.0):
         return list(expected_results)
 
-    monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+    monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))

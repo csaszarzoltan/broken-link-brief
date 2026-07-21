@@ -8,20 +8,20 @@ from http.server import HTTPServer
 
 import pytest
 
-from apps.brokenlinkbrief.app import _Handler
-from apps.brokenlinkbrief.package import LinkResult
+from brokenlinkbrief.app import _Handler
+from brokenlinkbrief.package import LinkResult
 
 
 class TestLogScanInterface:
     def test_log_scan_callable(self):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         assert callable(_log_scan)
 
     def test_log_scan_signature(self):
         import inspect
 
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         sig = inspect.signature(_log_scan)
         params = list(sig.parameters.values())
@@ -32,7 +32,7 @@ class TestLogScanInterface:
         assert params[3].name == "latency_seconds"
 
     def test_log_scan_produces_one_json_line(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -44,7 +44,7 @@ class TestLogScanInterface:
         assert captured.err.count("\n") == 1
 
     def test_log_scan_line_is_valid_json(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -59,7 +59,7 @@ class TestLogScanInterface:
         assert isinstance(parsed, dict)
 
     def test_log_scan_timestamp_iso8601(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -74,7 +74,7 @@ class TestLogScanInterface:
         datetime.datetime.fromisoformat(ts)
 
     def test_log_scan_fields_present(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -92,7 +92,7 @@ class TestLogScanInterface:
         assert parsed["status"] == "ok"
 
     def test_log_scan_status_error_for_http_errors(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -112,7 +112,7 @@ class TestLogScanInterface:
         assert parsed["broken_count"] == 1
 
     def test_log_scan_broken_count_non_ok_reason(self, capsys):
-        from apps.brokenlinkbrief.app import _log_scan
+        from brokenlinkbrief.app import _log_scan
 
         results = [
             LinkResult(
@@ -141,7 +141,7 @@ class TestEndpointLogging:
         def fake_scan(url: str, timeout: float = 10.0):
             return [LinkResult(url=url, status=200, reason="OK", location=None)]
 
-        monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+        monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
         sock = HTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=sock.serve_forever, daemon=True)
@@ -182,7 +182,7 @@ class TestEndpointLogging:
         def fake_scan(url: str, timeout: float = 10.0):
             return [LinkResult(url=url, status=200, reason="OK", location=None)]
 
-        monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+        monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
         sock = HTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=sock.serve_forever, daemon=True)
@@ -215,7 +215,7 @@ class TestEndpointLogging:
         def fake_scan(url: str, timeout: float = 10.0):
             return [LinkResult(url=url, status=200, reason="OK", location=None)]
 
-        monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+        monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
         sock = HTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=sock.serve_forever, daemon=True)
@@ -252,7 +252,7 @@ class TestEndpointLogging:
         def fake_scan(url: str, timeout: float = 10.0):
             return []
 
-        monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+        monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
         sock = HTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=sock.serve_forever, daemon=True)
@@ -344,7 +344,7 @@ class TestEndpointLogging:
                 ),
             ]
 
-        monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+        monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
         sock = HTTPServer(("127.0.0.1", 0), _Handler)
         thread = threading.Thread(target=sock.serve_forever, daemon=True)

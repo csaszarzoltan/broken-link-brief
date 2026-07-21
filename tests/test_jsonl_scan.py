@@ -25,8 +25,8 @@ from http.server import HTTPServer
 
 import pytest
 
-from apps.brokenlinkbrief.app import _Handler
-from apps.brokenlinkbrief.package import LinkResult
+from brokenlinkbrief.app import _Handler
+from brokenlinkbrief.package import LinkResult
 
 # ---------------------------------------------------------------------------
 # Interface tests — these MUST pass immediately.
@@ -36,13 +36,13 @@ from apps.brokenlinkbrief.package import LinkResult
 
 def test_interface_render_jsonl_importable() -> None:
     """render_jsonl must be importable from the package module."""
-    from apps.brokenlinkbrief.package import render_jsonl
+    from brokenlinkbrief.package import render_jsonl
     assert callable(render_jsonl)
 
 
 def test_interface_render_jsonl_signature_matches_contract() -> None:
     """render_jsonl(results: list[LinkResult]) -> str"""
-    from apps.brokenlinkbrief.package import render_jsonl
+    from brokenlinkbrief.package import render_jsonl
     signature = inspect.signature(render_jsonl)
     params = list(signature.parameters.values())
     assert len(params) == 1
@@ -78,7 +78,7 @@ def _start_server(monkeypatch):  # noqa: D401
     def fake_scan(url: str, timeout: float = 10.0):
         return list(expected_results)
 
-    monkeypatch.setattr("apps.brokenlinkbrief.app.scan_page", fake_scan)
+    monkeypatch.setattr("brokenlinkbrief.app.scan_page", fake_scan)
 
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))

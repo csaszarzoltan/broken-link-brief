@@ -37,6 +37,29 @@ curl "http://127.0.0.1:8000/scan?url=https://example.com"
 
 Set `BROKENLINKBRIEF_SCAN_TOKEN` to require a matching token on `/scan`.
 
+## Deploy to Railway
+
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new)
+
+```bash
+# Install Railway CLI
+npm install -g @railway/cli
+
+# Login and deploy
+railway login
+railway init
+railway up
+```
+
+The app reads the `PORT` environment variable automatically.
+
+### Docker
+
+```bash
+docker build -t brokenlinkbrief .
+docker run -p 8000:8000 brokenlinkbrief
+```
+
 ## Development
 
 ```bash

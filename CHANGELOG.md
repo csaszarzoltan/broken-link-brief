@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0 — 2026-07-21
+
+### Features
+- Add Railway deployment support: `railway.toml`, `Dockerfile`, and `PORT` env var binding
+- Add `__main__` block to `app.py` that reads `PORT` from environment and binds to `0.0.0.0`
+- Add Docker support with multi-stage-ready Dockerfile
+
+### Fixes
+- Fix import paths: replace `apps.brokenlinkbrief` with `brokenlinkbrief` across all modules and tests
+- Fix `pyproject.toml` build backend: replace invalid `setuptools.backends._legacy:_Backend` with `setuptools.build_meta`
+- Fix `conftest.py` to add `src/` directory to `sys.path` for test imports
+
+### Tests
+- Add `tests/test_deployment.py` with Railway readiness smoke tests (health endpoint, PORT binding)
+- Full suite: 40 passed, 1 xpassed, zero regressions
+
+### Docs
+- Add Railway and Docker deployment sections to `README.md`
+- Add deploy button for one-click Railway deployment
+
 ## 0.4.3 — 2026-07-20
 
 ### Features
