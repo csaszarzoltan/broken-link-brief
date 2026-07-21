@@ -17,9 +17,11 @@ from brokenlinkbrief.package import (
     render_markdown,
     scan_page,
 )
+from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
+_webhook_registry = WebhookRegistry()
 
 
 def _count_broken(results: list[Any]) -> int:
@@ -27,7 +29,7 @@ def _count_broken(results: list[Any]) -> int:
         1
         for r in results
         if (r.status is not None and r.status >= 400)
-        or (r.reason is not None and r.reason != "OK")
+        or (r.status is None and r.reason is not None)
     )
 
 
@@ -98,6 +100,14 @@ class _Handler(BaseHTTPRequestHandler):
             scan_results = scan_page(target_url)
             latency = time.perf_counter() - start
 
+            # Trigger webhooks in background if broken links found
+            import threading
+
+            def _fire_webhooks() -> None:
+                trigger_webhooks(_webhook_registry, target_url, scan_results)
+
+            threading.Thread(target=_fire_webhooks, daemon=True).start()
+
             response_format = params.get("format")
             if response_format is not None and response_format.lower() == "csv":
                 _log_scan(target_url, scan_results, response_format, latency)
@@ -115,6 +125,57 @@ class _Handler(BaseHTTPRequestHandler):
             _log_scan(target_url, scan_results, "json", latency)
             results = [result.__dict__ for result in scan_results]
             _write_json(self, 200, results)
+            return
+
+        _write_json(self, 404, {"detail": "not found"})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        if path == "/webhooks":
+            # Auth check (same as /scan)
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                provided_token = None
+                if "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            # Read body
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b""
+            try:
+                body = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"detail": "invalid JSON"})
+                return
+
+            url = body.get("url")
+            if not url:
+                _write_json(self, 400, {"detail": "missing url field"})
+                return
+
+            secret = body.get("secret")
+
+            # Check duplicate
+            existing = _webhook_registry.find_by_url(url)
+            if existing is not None:
+                _write_json(self, 409, {"detail": "URL already registered"})
+                return
+
+            # Register
+            try:
+                reg = _webhook_registry.register(url, secret=secret)
+            except ValueError as exc:
+                _write_json(self, 400, {"detail": str(exc)})
+                return
+
+            _write_json(self, 201, {"id": reg.id, "url": reg.url})
             return
 
         _write_json(self, 404, {"detail": "not found"})
