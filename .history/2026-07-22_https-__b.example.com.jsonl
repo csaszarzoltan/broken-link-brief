@@ -26,5 +26,5 @@
 {"timestamp": "2026-07-22T15:37:00.755183+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
 {"timestamp": "2026-07-22T15:47:53.490967+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
 {"timestamp": "2026-07-22T15:48:55.307521+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
-{"timestamp": "2026-07-22T15:51:49.492567+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
-{"timestamp": "2026-07-22T15:52:08.890972+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
+{"timestamp": "2026-07-22T16:14:58.655513+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
+{"timestamp": "2026-07-22T16:18:05.928121+00:00", "url": "https://b.example.com", "results": [{"url": "https://b.example.com", "status": null, "reason": "fetch-failed", "location": null}]}
