@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
 import sys
 import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from brokenlinkbrief.package import (
     compute_diff,
@@ -29,12 +34,138 @@ _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
 _webhook_registry = WebhookRegistry()
 
 
+@dataclass
+class HealthCheck:
+    """Result of a single health check."""
+
+    name: str
+    status: str  # "healthy" | "degraded" | "unhealthy"
+    latency_ms: float
+    details: str | None = None
+
+
+@dataclass
+class HealthResponse:
+    """Health check response model."""
+
+    status: str  # "healthy" | "degraded" | "unhealthy"
+    version: str
+    timestamp: str
+    checks: list[HealthCheck]
+
+
 def _count_broken(results: list[Any]) -> int:
     return sum(
         1
         for r in results
         if (r.status is not None and r.status >= 400)
         or (r.status is None and r.reason is not None)
+    )
+
+
+def _check_external_http() -> HealthCheck:
+    """Check external HTTP connectivity to a reliable endpoint."""
+    start = time.perf_counter()
+    try:
+        req = Request("https://httpbin.org/get", method="GET")
+        with urlopen(req, timeout=5.0) as resp:
+            status = getattr(resp, "status", None) or getattr(resp, "code", None)
+            latency = (time.perf_counter() - start) * 1000
+            if status == 200:
+                return HealthCheck(
+                    name="external_http",
+                    status="healthy",
+                    latency_ms=round(latency, 2),
+                    details=f"HTTP {status}",
+                )
+            return HealthCheck(
+                name="external_http",
+                status="degraded",
+                latency_ms=round(latency, 2),
+                details=f"HTTP {status}",
+            )
+    except (HTTPError, URLError, socket.timeout) as exc:
+        latency = (time.perf_counter() - start) * 1000
+        return HealthCheck(
+            name="external_http",
+            status="unhealthy",
+            latency_ms=round(latency, 2),
+            details=str(exc),
+        )
+
+
+def _check_history_store() -> HealthCheck:
+    """Check if history store is accessible."""
+    start = time.perf_counter()
+    try:
+        from brokenlinkbrief.package import HistoryStore
+
+        store = HistoryStore()
+        # Just try to list the directory - this verifies the store is accessible
+        _ = list(store._dir.glob("*.jsonl"))  # noqa: SLF001
+        latency = (time.perf_counter() - start) * 1000
+        return HealthCheck(
+            name="history_store",
+            status="healthy",
+            latency_ms=round(latency, 2),
+            details="accessible",
+        )
+    except Exception as exc:
+        latency = (time.perf_counter() - start) * 1000
+        return HealthCheck(
+            name="history_store",
+            status="unhealthy",
+            latency_ms=round(latency, 2),
+            details=str(exc),
+        )
+
+
+def _check_dns_resolution() -> HealthCheck:
+    """Check DNS resolution works."""
+    start = time.perf_counter()
+    try:
+        socket.gethostbyname("google.com")
+        latency = (time.perf_counter() - start) * 1000
+        return HealthCheck(
+            name="dns_resolution",
+            status="healthy",
+            latency_ms=round(latency, 2),
+            details="resolved google.com",
+        )
+    except (socket.gaierror, OSError) as exc:
+        latency = (time.perf_counter() - start) * 1000
+        return HealthCheck(
+            name="dns_resolution",
+            status="unhealthy",
+            latency_ms=round(latency, 2),
+            details=str(exc),
+        )
+
+
+def run_health_checks() -> HealthResponse:
+    """Run all health checks and return aggregated response."""
+    checks = [
+        _check_external_http(),
+        _check_history_store(),
+        _check_dns_resolution(),
+    ]
+
+    # Determine overall status
+    unhealthy_count = sum(1 for c in checks if c.status == "unhealthy")
+    degraded_count = sum(1 for c in checks if c.status == "degraded")
+
+    if unhealthy_count > 0:
+        overall_status = "unhealthy"
+    elif degraded_count > 0:
+        overall_status = "degraded"
+    else:
+        overall_status = "healthy"
+
+    return HealthResponse(
+        status=overall_status,
+        version="0.7.0",
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        checks=checks,
     )
 
 
@@ -82,7 +213,9 @@ class _Handler(BaseHTTPRequestHandler):
         }
 
         if path == "/health":
-            _write_json(self, 200, {"status": "ok"})
+            health = run_health_checks()
+            status_code = 200 if health.status == "healthy" else 503
+            _write_json(self, status_code, asdict(health))
             return
 
         if path == "/scan":
