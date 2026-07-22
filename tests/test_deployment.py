@@ -66,3 +66,80 @@ def test_server_binds_to_0_0_0_0() -> None:
     sig = inspect.signature(run)
     assert "host" in sig.parameters
     assert "port" in sig.parameters
+
+
+def test_railway_toml_exists() -> None:
+    """railway.toml exists at project root."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    assert toml_path.exists(), f"railway.toml not found at {toml_path}"
+
+
+def test_railway_toml_has_dockerfile_builder() -> None:
+    """railway.toml uses DOCKERFILE builder."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert 'builder = "DOCKERFILE"' in content
+
+
+def test_railway_toml_has_healthcheck() -> None:
+    """railway.toml has healthcheckPath set to /health."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert 'healthcheckPath = "/health"' in content
+
+
+def test_railway_toml_has_restart_policy() -> None:
+    """railway.toml has restart policy ON_FAILURE with max retries."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert 'restartPolicyType = "ON_FAILURE"' in content
+    assert "restartPolicyMaxRetries" in content
+
+
+def test_railway_toml_has_staging_environment() -> None:
+    """railway.toml has staging environment configuration."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert "[environments.staging]" in content
+
+
+def test_railway_toml_has_production_environment() -> None:
+    """railway.toml has production environment configuration."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert "[environments.production]" in content
+
+
+def test_infra_dockerfile_exists() -> None:
+    """infra/Dockerfile exists for Railway deployment."""
+    dockerfile_path = Path(__file__).resolve().parent.parent / "infra" / "Dockerfile"
+    assert dockerfile_path.exists(), f"infra/Dockerfile not found at {dockerfile_path}"
+
+
+def test_infra_dockerfile_is_multi_stage() -> None:
+    """infra/Dockerfile uses multi-stage build (builder stage)."""
+    dockerfile_path = Path(__file__).resolve().parent.parent / "infra" / "Dockerfile"
+    content = dockerfile_path.read_text()
+    assert "FROM python:3.11-slim AS builder" in content
+
+
+def test_infra_dockerfile_has_non_root_user() -> None:
+    """infra/Dockerfile creates and uses non-root user."""
+    dockerfile_path = Path(__file__).resolve().parent.parent / "infra" / "Dockerfile"
+    content = dockerfile_path.read_text()
+    assert "USER app" in content
+    assert "useradd" in content
+
+
+def test_infra_dockerfile_exposes_port() -> None:
+    """infra/Dockerfile exposes port 8000."""
+    dockerfile_path = Path(__file__).resolve().parent.parent / "infra" / "Dockerfile"
+    content = dockerfile_path.read_text()
+    assert "EXPOSE 8000" in content
+
+
+def test_railway_toml_points_to_infra_dockerfile() -> None:
+    """railway.toml dockerfilePath points to infra/Dockerfile."""
+    toml_path = Path(__file__).resolve().parent.parent / "railway.toml"
+    content = toml_path.read_text()
+    assert 'dockerfilePath = "infra/Dockerfile"' in content
