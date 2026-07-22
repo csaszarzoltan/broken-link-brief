@@ -1,0 +1,1 @@
+{"timestamp": "2026-07-22T15:22:53.592133+00:00", "url": "https://api-test.com", "results": [{"url": "https://example.com/page1", "status": 200, "reason": "OK", "location": null}, {"url": "https://example.com/broken", "status": 404, "reason": "Not Found", "location": null}]}

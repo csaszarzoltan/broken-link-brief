@@ -227,8 +227,8 @@ def validate_scan_url(url: str) -> str | None:
       (prevents DNS rebinding attacks).
     - Allows HTTP and HTTPS (unlike webhook validator which is HTTPS-only).
     """
-    from ipaddress import ip_address, ip_network
     import socket
+    from ipaddress import ip_address, ip_network
 
     # Exact hostname blocklist
     _BLOCKED_HOSTS = frozenset({
@@ -390,12 +390,6 @@ def render_jsonl(results: list[LinkResult]) -> str:
 # HISTORICAL LINK TRACKING FEATURE (IMPLEMENTED)
 # ============================================================================
 
-import json as _json
-from datetime import datetime
-from pathlib import Path
-from threading import Lock
-from typing import Any, Dict, List
-
 _HISTORY_DIR = Path(".history")
 
 
@@ -408,16 +402,26 @@ class HistoryStore:
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _make_path(self, url: str, timestamp: str) -> Path:
+        # Sanitize URL for filename - prevent path traversal
         safe_url = url.replace("/", "_").replace(":", "-").replace("+", "_")
+        safe_url = safe_url.replace("..", "_").replace("~", "_").replace("\x00", "")
         date_part = timestamp.split("T")[0]
         file = f"{date_part}_{safe_url}.jsonl"
-        return self._dir / file
+        path = (self._dir / file).resolve()
+        # Ensure path stays within history directory
+        if not path.is_relative_to(self._dir.resolve()):
+            raise ValueError(f"Path traversal detected: {path}")
+        return path
 
     def record_scan(self, results: list[LinkResult], url: str) -> None:
         """Append timestamped scan results to history file.
 
         Requires: results != [], url is valid.
         """
+        if not results:
+            raise ValueError("results must be non-empty")
+        if not url or not url.strip():
+            raise ValueError("url must be non-empty")
         timestamp = datetime.now(timezone.utc).isoformat()
         record = {
             "timestamp": timestamp,
@@ -436,7 +440,7 @@ class HistoryStore:
         with self._lock:
             path = self._make_path(url, timestamp)
             with open(path, "a", encoding="utf-8") as f:
-                f.write(_json.dumps(record) + "\n")
+                f.write(json.dumps(record) + "\n")
 
     def get_history(self, url: str, limit: int = 100, since: str | None = None) -> list[dict]:
         """Return historical records for url, ordered by timestamp.
@@ -444,13 +448,15 @@ class HistoryStore:
         Requires: limit >= 1, since is ISO string when provided.
         Returns: list of dict records with keys: timestamp, url, results.
         """
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
         with self._lock:
             records = []
 
             for file_path in self._dir.glob("*.jsonl"):
-                with open(file_path, "r", encoding="utf-8") as f:
+                with open(file_path, encoding="utf-8") as f:
                     for line in f:
-                        record = _json.loads(line.strip())
+                        record = json.loads(line.strip())
                         if record.get("url") == url:
                             # Filter by since if provided
                             if since:
@@ -489,8 +495,13 @@ def compute_diff(previous: list[dict], current: list[dict]) -> dict:
     Requires: previous, current are lists of dicts with keys: url, status, broken flag (or compute from status).
     Returns: {"added_broken": [...], "fixed": [...], "still_broken": [...]}.
     """
+    if not isinstance(previous, list) or not isinstance(current, list):
+        raise ValueError("previous and current must be lists")
+
     # Helper to determine if a record is broken
     def is_broken(record: dict) -> bool:
+        if not isinstance(record, dict):
+            return False
         status = record.get("status")
         broken = record.get("broken", False)
         if status is not None:

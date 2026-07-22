@@ -10,8 +10,11 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from brokenlinkbrief.package import (
+    compute_diff,
     get_configured_scan_token,
+    get_history,
     is_scan_authorized,
+    record_scan,
     render_csv,
     render_jsonl,
     render_markdown,
@@ -102,13 +105,32 @@ class _Handler(BaseHTTPRequestHandler):
             scan_results = scan_page(target_url)
             latency = time.perf_counter() - start
 
-            # Trigger webhooks in background if broken links found
+            # Record scan and trigger webhooks only on changes
             import threading
 
-            def _fire_webhooks() -> None:
-                trigger_webhooks(_webhook_registry, target_url, scan_results)
+            # Record this scan in history
+            record_scan(scan_results, target_url)
 
-            threading.Thread(target=_fire_webhooks, daemon=True).start()
+            # Get previous scan for comparison
+            history = get_history(target_url, limit=2)
+            if len(history) >= 2:
+                previous_results = history[1].get("results", [])
+                current_results = [{"url": r.url, "status": r.status} for r in scan_results]
+                diff = compute_diff(previous_results, current_results)
+                # Only fire webhooks if there are changes
+                if diff.get("added_broken") or diff.get("fixed"):
+                    def _fire_webhooks() -> None:
+                        trigger_webhooks(_webhook_registry, target_url, scan_results)
+
+                    threading.Thread(target=_fire_webhooks, daemon=True).start()
+            elif scan_results:
+                # First scan with broken links - fire webhooks
+                broken = [r for r in scan_results if r.status and r.status >= 400]
+                if broken:
+                    def _fire_webhooks() -> None:
+                        trigger_webhooks(_webhook_registry, target_url, scan_results)
+
+                    threading.Thread(target=_fire_webhooks, daemon=True).start()
 
             response_format = params.get("format")
             if response_format is not None and response_format.lower() == "csv":
@@ -126,6 +148,28 @@ class _Handler(BaseHTTPRequestHandler):
 
             _log_scan(target_url, scan_results, "json", latency)
             results = [result.__dict__ for result in scan_results]
+            _write_json(self, 200, results)
+            return
+
+        # HISTORY ENDPOINTS
+        if path == "/history":
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+            target_url = params.get("url")
+            if not target_url:
+                _write_json(self, 400, {"detail": "missing url query parameter"})
+                return
+
+            # Authenticate and get history
+            results = get_history(target_url)
             _write_json(self, 200, results)
             return
 
@@ -247,6 +291,26 @@ class _Handler(BaseHTTPRequestHandler):
             batch_results = scan_batch(urls, timeout=10.0, max_workers=concurrency)
             latency = time.perf_counter() - start
 
+            # Record scan history and trigger webhooks on changes
+            import threading
+
+            for url in urls:
+                if url in batch_results:
+                    results = batch_results[url]
+                    record_scan(results, url)
+
+                    # Check for changes and trigger webhooks
+                    history = get_history(url, limit=2)
+                    if len(history) >= 2:
+                        previous_results = history[1].get("results", [])
+                        current_results = [{"url": r.url, "status": r.status} for r in results]
+                        diff = compute_diff(previous_results, current_results)
+                        if diff.get("added_broken") or diff.get("fixed"):
+                            def _fire_webhooks(u=url, r=results) -> None:
+                                trigger_webhooks(_webhook_registry, u, r)
+
+                            threading.Thread(target=_fire_webhooks, daemon=True).start()
+
             # Flatten results for non-JSON formats
             all_results = []
             for url in urls:
@@ -294,6 +358,43 @@ class _Handler(BaseHTTPRequestHandler):
                 "latency_seconds": round(latency, 6),
             }
             _write_json(self, 200, {"results": serializable, "summary": summary})
+            return
+
+        if path == "/diff":
+            # Auth check (same as /scan-batch)
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                params = {
+                    key: values[0]
+                    for key, values in parse_qs(parsed.query).items()
+                    if values
+                }
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            # Read body
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b""
+            try:
+                body = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"detail": "invalid JSON"})
+                return
+
+            previous = body.get("previous")
+            current = body.get("current")
+            if not previous or not current:
+                _write_json(self, 400, {"detail": "missing previous or current in request"})
+                return
+
+            diff_result = compute_diff(previous, current)
+            _write_json(self, 200, diff_result)
             return
 
         _write_json(self, 404, {"detail": "not found"})
