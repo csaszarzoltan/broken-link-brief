@@ -6,6 +6,7 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 
 - 🔍 Scan any webpage for broken links
 - 📊 Export as JSON, CSV, Markdown, or JSONL
+- ⚡ Batch scanning — check up to 50 URLs in parallel in a single request
 - 🔔 Webhook notifications when broken links are found
 - 🔒 Optional token-based authentication
 - 📝 JSONL usage logging for analytics
@@ -33,13 +34,127 @@ curl "http://127.0.0.1:8000/scan?url=https://example.com"
 | GET | `/scan?url=<target>&format=csv` | Optional | CSV export |
 | GET | `/scan?url=<target>&format=markdown` | Optional | Markdown brief |
 | GET | `/scan?url=<target>&format=jsonl` | Optional | JSON Lines |
+| POST | `/scan-batch` | Optional | Batch scan up to 50 URLs |
 | POST | `/webhooks` | Required | Register a webhook URL |
 | GET | `/webhooks` | Required | List registered webhooks |
 | DELETE | `/webhooks/<id>` | Required | Remove a webhook |
 
+## Batch Scanning
+
+Scan multiple pages for broken links in a single request. All URLs are checked concurrently using a thread pool, with results returned per-URL and as an aggregated summary.
+
+### Basic Usage
+
+```bash
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com", "https://httpstat.us/404"]}'
+```
+
+### Request Body
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `urls` | `list[string]` | Yes | URLs to scan (1–50 unique URLs) |
+| `concurrency` | `int` | No | Max parallel workers (default 10, max 20) |
+| `format` | `string` | No | Output format: `json` (default), `csv`, `markdown`, `jsonl` |
+
+### Response Format (JSON)
+
+The default JSON response contains per-URL results and an aggregated summary:
+
+```json
+{
+  "results": {
+    "https://example.com": [
+      {
+        "url": "https://example.com/link1",
+        "status": 200,
+        "reason": "OK",
+        "location": null
+      }
+    ],
+    "https://httpstat.us/404": [
+      {
+        "url": "https://httpstat.us/404",
+        "status": 404,
+        "reason": "Not Found",
+        "location": null
+      }
+    ]
+  },
+  "summary": {
+    "total_urls": 2,
+    "broken_count": 1,
+    "latency_seconds": 1.234
+  }
+}
+```
+
+Each value under `results` is an array of `LinkResult` objects for that URL (one per discovered link on the page).
+
+### Concurrency Control
+
+Control how many URLs are scanned in parallel by setting `concurrency` in the request body:
+
+```bash
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com"], "concurrency": 5}'
+```
+
+The `concurrency` value is capped at 20. If omitted, defaults to 10.
+
+### Output Formats
+
+Batch scans support the same output formats as single scans. For non-JSON formats, results from all URLs are flattened into a single table:
+
+```bash
+# CSV output
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com"], "format": "csv"}'
+
+# Markdown output
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com"], "format": "markdown"}'
+
+# JSONL output
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com"], "format": "jsonl"}'
+```
+
+### Authentication
+
+If `BROKENLINKBRIEF_SCAN_TOKEN` is set, pass the token as an `Authorization` header or a `token` query parameter:
+
+```bash
+curl -X POST http://127.0.0.1:8000/scan-batch \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ***" \
+  -d '{"urls": ["https://example.com"]}'
+```
+
+### Error Responses
+
+| Status | Condition |
+|--------|-----------|
+| 400 | Missing `urls` field, empty list, duplicate URLs, >50 URLs, or SSRF-blocked URL |
+| 401 | Missing or invalid token (when `BROKENLINKBRIEF_SCAN_TOKEN` is set) |
+
+Example error:
+
+```json
+{
+  "detail": "duplicate URLs in request"
+}
+```
+
 ## Authentication
 
-Set `BROKENLINKBRIEF_SCAN_TOKEN` to require a matching token on `/scan` and `/webhooks`.
+Set `BROKENLINKBRIEF_SCAN_TOKEN` to require a matching token on `/scan`, `/scan-batch`, and `/webhooks`.
 
 ## Webhook Notifications
 
@@ -50,7 +165,7 @@ Register an HTTPS webhook URL to receive notifications when broken links are det
 ```bash
 curl -X POST http://127.0.0.1:8000/webhooks \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer ***" \
   -d '{"url": "https://your-server.com/webhook", "secret": "optional-hmac-secret"}'
 ```
 
