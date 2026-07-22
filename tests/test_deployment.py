@@ -58,10 +58,10 @@ def test_health_endpoint_returns_ok(server: str) -> None:
 
 def test_server_binds_to_0_0_0_0() -> None:
     """Verify __main__ block reads PORT env var."""
-    from brokenlinkbrief.app import run
-
     # Just verify the function signature accepts host/port
     import inspect
+
+    from brokenlinkbrief.app import run
 
     sig = inspect.signature(run)
     assert "host" in sig.parameters
