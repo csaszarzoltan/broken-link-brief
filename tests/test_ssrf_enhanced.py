@@ -5,11 +5,9 @@ and comprehensive reserved network range checks added to validate_scan_url.
 """
 from __future__ import annotations
 
-import socket
 from unittest.mock import patch
 
 from brokenlinkbrief.package import validate_scan_url
-
 
 # ---------------------------------------------------------------------------
 # Hostname substring blocking
@@ -73,7 +71,6 @@ def test_dns_resolution_failure_allowed() -> None:
 
     with patch("socket.getaddrinfo", _fail_getaddrinfo):
         result = validate_scan_url("https://nonexistent.example.com")
-    # Unresolvable = not reachable, allowed through
     assert result is None
 
 
