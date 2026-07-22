@@ -15,7 +15,9 @@ from brokenlinkbrief.package import (
     render_csv,
     render_jsonl,
     render_markdown,
+    scan_batch,
     scan_page,
+    validate_scan_url,
 )
 from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 
@@ -176,6 +178,122 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
             _write_json(self, 201, {"id": reg.id, "url": reg.url})
+            return
+
+        if path == "/scan-batch":
+            # Auth check (same as /scan)
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                params = {
+                    key: values[0]
+                    for key, values in parse_qs(parsed.query).items()
+                    if values
+                }
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            # Read body
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b""
+            try:
+                body = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"detail": "invalid JSON"})
+                return
+
+            urls = body.get("urls")
+            if not isinstance(urls, list) or len(urls) == 0:
+                _write_json(self, 400, {"detail": "urls must be a non-empty list"})
+                return
+
+            # Reject duplicates
+            if len(urls) != len(set(urls)):
+                _write_json(self, 400, {"detail": "duplicate URLs in request"})
+                return
+
+            # Reject >50 URLs
+            if len(urls) > 50:
+                _write_json(
+                    self, 400, {"detail": "maximum 50 URLs per batch request"}
+                )
+                return
+
+            # SSRF validation
+            for url in urls:
+                error = validate_scan_url(url)
+                if error is not None:
+                    _write_json(
+                        self,
+                        400,
+                        {"detail": f"SSRF blocked: {url} - {error}"},
+                    )
+                    return
+
+            # Concurrency: cap at 20
+            concurrency = body.get("concurrency", 10)
+            try:
+                concurrency = min(int(concurrency), 20)
+            except (TypeError, ValueError):
+                concurrency = 10
+
+            # Scan
+            start = time.perf_counter()
+            batch_results = scan_batch(urls, timeout=10.0, max_workers=concurrency)
+            latency = time.perf_counter() - start
+
+            # Flatten results for non-JSON formats
+            all_results = []
+            for url in urls:
+                all_results.extend(batch_results.get(url, []))
+
+            broken_count = _count_broken(all_results)
+
+            # JSONL logging for batch
+            batch_id = f"{int(start * 1000)}_{len(urls)}"
+            log_entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "batch_id": batch_id,
+                "url_count": len(urls),
+                "total_broken": broken_count,
+                "latency_seconds": round(latency, 6),
+            }
+            log_file = _get_log_file()
+            try:
+                log_file.write(json.dumps(log_entry) + "\n")
+                log_file.flush()
+            finally:
+                if log_file is not sys.stderr:
+                    log_file.close()
+
+            # Format response
+            response_format = body.get("format")
+            if response_format and response_format.lower() == "csv":
+                _write_csv(self, render_csv(all_results))
+                return
+            if response_format and response_format.lower() == "markdown":
+                _write_markdown(self, render_markdown(all_results))
+                return
+            if response_format and response_format.lower() == "jsonl":
+                _write_jsonl(self, render_jsonl(all_results))
+                return
+
+            # Default: JSON with results and summary
+            serializable = {
+                url: [r.__dict__ for r in results]
+                for url, results in batch_results.items()
+            }
+            summary = {
+                "total_urls": len(urls),
+                "broken_count": broken_count,
+                "latency_seconds": round(latency, 6),
+            }
+            _write_json(self, 200, {"results": serializable, "summary": summary})
             return
 
         _write_json(self, 404, {"detail": "not found"})

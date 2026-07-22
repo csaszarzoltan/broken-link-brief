@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.7.0 (2026-07-22)
+
+### Features
+- **Batch scanning** — POST /scan-batch endpoint accepts up to 50 URLs in a single request for parallel link checking
+- **Concurrency control** — configurable worker count (max 20) for parallel URL scanning
+- **Duplicate URL rejection** — returns HTTP 400 when duplicate URLs are present in a batch request
+- **SSRF protection** — per-URL SSRF validation applied to all URLs in the batch
+- **Batch JSONL logging** — batch scan results logged with batch_id and latency for traceability
+
+### Tests
+- Added 39 new tests across 2 test files (test_batch_endpoint.py: 10/10, test_batch_scan.py: 29/29)
+- Total test count: 170 (up from 130)
+
 ## v0.6.0 (2026-07-21)
 
 ### Features

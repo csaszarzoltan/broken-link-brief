@@ -212,6 +212,83 @@ def render_markdown(results: list[LinkResult]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def validate_scan_url(url: str) -> str | None:
+    """Return None if URL is safe to scan, error string if blocked.
+
+    Blocks loopback, private IPs, metadata endpoints, and invalid URLs.
+    Unlike validate_webhook_url, allows HTTP (not just HTTPS).
+    """
+    from ipaddress import ip_address
+
+    _blocked_hosts = frozenset({
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "metadata.google.internal",
+        "169.254.169.254",
+    })
+
+    def _is_private_ip(hostname: str) -> bool:
+        try:
+            addr = ip_address(hostname)
+            return addr.is_private or addr.is_loopback or addr.is_link_local
+        except ValueError:
+            return False
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "invalid URL"
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return "missing hostname"
+
+    if hostname.lower() in _blocked_hosts:
+        return f"blocked host: {hostname}"
+
+    if _is_private_ip(hostname):
+        return f"private IP: {hostname}"
+
+    if parsed.scheme not in ("http", "https"):
+        return f"unsupported scheme: {parsed.scheme}"
+
+    return None
+
+
+def scan_batch(
+    urls: list[str],
+    timeout: float = 10.0,
+    max_workers: int = 5,
+) -> dict[str, list[LinkResult]]:
+    """Scan multiple URLs concurrently using a ThreadPoolExecutor.
+
+    Returns a dict keyed by input URL, each value a list[LinkResult].
+    Per-URL exceptions are captured as LinkResult(status=None, reason=str(exc)).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    results: dict[str, list[LinkResult]] = {}
+
+    def _scan_one(url: str) -> tuple[str, list[LinkResult]]:
+        try:
+            return url, scan_page(url, timeout=timeout)
+        except Exception as exc:
+            result = LinkResult(
+                url=url, status=None, reason=str(exc), location=None
+            )
+            return url, [result]
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_scan_one, url): url for url in urls}
+        for future in as_completed(futures):
+            url, scan_results = future.result()
+            results[url] = scan_results
+
+    return results
+
+
 def render_jsonl(results: list[LinkResult]) -> str:
     """Render scan results as JSON Lines (one JSON object per line).
 
