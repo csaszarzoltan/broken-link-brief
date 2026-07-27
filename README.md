@@ -8,6 +8,8 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 - 📊 Export as JSON, CSV, Markdown, or JSONL
 - ⚡ Batch scanning — check up to 50 URLs in parallel in a single request
 - 🔔 Webhook notifications when broken links are found
+- 📧 Email notifications via SMTP when broken links are detected
+- 💬 Slack integration via Incoming Webhooks
 - 🔒 Optional token-based authentication
 - 📝 JSONL usage logging for analytics
 - 🛡️ SSRF protection for URL validation
@@ -231,6 +233,115 @@ If all attempts fail, the error is logged but does not affect the scan result.
 - Private IPs, loopback addresses, and link-local addresses are blocked (SSRF protection)
 - HMAC signatures use timing-safe comparison (`hmac.compare_digest`)
 - Webhook target responses are discarded (not trusted)
+
+## Email / Slack Notifications
+
+BrokenLinkBrief can send scan result notifications via **Email (SMTP)** and/or **Slack (Incoming Webhooks)**. Both channels are configured through environment variables and are automatically triggered after every `/scan` and `/scan-batch` call that finds broken links.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROKENLINKBRIEF_SMTP_HOST` | — | SMTP server hostname (required for email) |
+| `BROKENLINKBRIEF_SMTP_PORT` | `587` | SMTP port (465 = SSL, 587 = STARTTLS, 25 = plain) |
+| `BROKENLINKBRIEF_SMTP_USER` | — | SMTP authentication username (required for email) |
+| `BROKENLINKBRIEF_SMTP_PASSWORD` | — | SMTP authentication password (required for email) |
+| `BROKENLINKBRIEF_SMTP_FROM` | — | Sender email address (required for email) |
+| `BROKENLINKBRIEF_SLACK_WEBHOOK_URL` | — | Slack Incoming Webhook URL (required for Slack) |
+| `BROKENLINKBRIEF_NOTIFY_ON` | `critical,warning,info` | Comma-separated severity levels that trigger notifications |
+| `BROKENLINKBRIEF_NOTIFY_RATE_LIMIT` | `10` | Max notifications per rate interval per scanned URL |
+| `BROKENLINKBRIEF_NOTIFY_RATE_INTERVAL` | `60` | Rate limit window in seconds |
+
+### Email Notification Setup
+
+1. Set SMTP environment variables for your email provider.
+
+   **Gmail (App Password):**
+   ```bash
+   export BROKENLINKBRIEF_SMTP_HOST=smtp.gmail.com
+   export BROKENLINKBRIEF_SMTP_PORT=587
+   export BROKENLINKBRIEF_SMTP_USER=your@gmail.com
+   export BROKENLINKBRIEF_SMTP_PASSWORD=your-app-password
+   export BROKENLINKBRIEF_SMTP_FROM=your@gmail.com
+   ```
+
+   **SendGrid:**
+   ```bash
+   export BROKENLINKBRIEF_SMTP_HOST=smtp.sendgrid.net
+   export BROKENLINKBRIEF_SMTP_PORT=587
+   export BROKENLINKBRIEF_SMTP_USER=apikey
+   export BROKENLINKBRIEF_SMTP_PASSWORD=SG.your-api-key
+   export BROKENLINKBRIEF_SMTP_FROM=alerts@yourdomain.com
+   ```
+
+2. Start the server — notifications are sent automatically when broken links are found.
+
+3. Email recipients are set to the same address as `BROKENLINKBRIEF_SMTP_FROM` (monitoring best practice). The subject line is formatted as `BrokenLinkBrief Report: <scanned_url>`.
+
+### Slack Webhook Setup
+
+1. Create a Slack Incoming Webhook:
+   - Go to [api.slack.com/apps](https://api.slack.com/apps) → Create New App → Incoming Webhooks
+   - Activate the webhook and copy the URL
+   - The URL looks like: `https://hooks.slack.com/services/T00/B00/xxxxx`
+
+2. Set the environment variable:
+   ```bash
+   export BROKENLINKBRIEF_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T00/B00/xxxxx
+   ```
+
+3. Start the server — Slack messages are posted automatically when broken links are found.
+
+### Notification Templates & Severity Levels
+
+Severity is automatically assigned based on HTTP status codes:
+
+| Status Range | Severity | Emoji  |
+|--------------|----------|--------|
+| 5xx          | critical | 🔴     |
+| 4xx          | warning  | 🟡     |
+| 3xx / 2xx    | info     | 🟢     |
+
+The notification includes:
+
+- URL scanned and timestamp
+- Total links checked
+- Broken links grouped by severity with details (URL, status code, reason)
+
+Control which severities trigger notifications with `BROKENLINKBRIEF_NOTIFY_ON`:
+
+```bash
+# Only critical errors
+export BROKENLINKBRIEF_NOTIFY_ON=critical
+
+# Critical and warnings (no info)
+export BROKENLINKBRIEF_NOTIFY_ON=critical,warning
+```
+
+### Rate Limiting
+
+Notifications use a token-bucket rate limiter per scanned URL to prevent flooding.
+
+- **Default**: 10 notifications per 60 seconds per URL
+- Configure via `BROKENLINKBRIEF_NOTIFY_RATE_LIMIT` (burst capacity) and `BROKENLINKBRIEF_NOTIFY_RATE_INTERVAL` (window in seconds)
+- When the rate limit is hit, all channels are silently skipped for that URL until tokens refill
+
+### Quick Start with Notifications
+
+```bash
+# Start the server with email and Slack configured
+export BROKENLINKBRIEF_SMTP_HOST=smtp.gmail.com
+export BROKENLINKBRIEF_SMTP_PORT=587
+export BROKENLINKBRIEF_SMTP_USER=monitor@gmail.com
+export BROKENLINKBRIEF_SMTP_PASSWORD=your-app-password
+export BROKENLINKBRIEF_SMTP_FROM=monitor@gmail.com
+export BROKENLINKBRIEF_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/T00/B00/xxxxx
+
+python -m brokenlinkbrief.app
+
+# In another terminal: scan a page — notifications fire automatically
+curl "http://127.0.0.1:8000/scan?url=https://example.com"
+```
 
 ## Deploy to Railway
 
