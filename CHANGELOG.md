@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.8.0 (2026-07-27)
+
+### Features
+- **Email notification support** — SMTP-based email alerts when broken links are detected; configurable recipients, sender address, and server settings
+- **Slack webhook integration** — sends formatted messages to Slack via Incoming Webhook URL with severity-based formatting
+- **Notification templates** — customizable plain-text templates with severity-based alerting (INFO, WARNING, CRITICAL)
+- **Rate limiting** — token-bucket algorithm prevents notification flood (configurable rate and burst per channel)
+- **Environment variable configuration** — all notification settings configurable via `EMAIL_*` and `SLACK_*` environment variables via `NotifierConfig.from_env()`
+
+### Improvements
+- **Health check endpoint** — comprehensive `/health` endpoint for monitoring and uptime checks
+- **Enhanced SSRF protection** — ported ReceiptLens SSRF guard patterns for more robust URL validation
+- **Railway deploy config** — deployment configuration aligned with platform best practices
+
+### Tests
+- Added 102 new tests across notification module, health check, SSRF protection, and deployment
+- Total test count: 272 (up from 170)
+- Coverage: 82% (maintaining ≥80% threshold)
+
 ## v0.7.0 (2026-07-22)
 
 ### Features
