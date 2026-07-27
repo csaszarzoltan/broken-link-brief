@@ -10,10 +10,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 
+from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
     compute_diff,
     get_configured_scan_token,
@@ -32,6 +33,8 @@ from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
 _webhook_registry = WebhookRegistry()
+_notifier_config = NotifierConfig.from_env()
+_rate_limiter = RateLimiter(capacity=10, fill_rate=0.1667)  # ~10 per 60s
 
 
 @dataclass
@@ -84,7 +87,7 @@ def _check_external_http() -> HealthCheck:
                 latency_ms=round(latency, 2),
                 details=f"HTTP {status}",
             )
-    except (HTTPError, URLError, socket.timeout) as exc:
+    except (TimeoutError, HTTPError, URLError) as exc:
         latency = (time.perf_counter() - start) * 1000
         return HealthCheck(
             name="external_http",
@@ -248,7 +251,9 @@ class _Handler(BaseHTTPRequestHandler):
             history = get_history(target_url, limit=2)
             if len(history) >= 2:
                 previous_results = history[1].get("results", [])
-                current_results = [{"url": r.url, "status": r.status} for r in scan_results]
+                current_results = [
+                    {"url": r.url, "status": r.status} for r in scan_results
+                ]
                 diff = compute_diff(previous_results, current_results)
                 # Only fire webhooks if there are changes
                 if diff.get("added_broken") or diff.get("fixed"):
@@ -256,6 +261,10 @@ class _Handler(BaseHTTPRequestHandler):
                         trigger_webhooks(_webhook_registry, target_url, scan_results)
 
                     threading.Thread(target=_fire_webhooks, daemon=True).start()
+                    # Notify synchronously after webhook trigger
+                    notify_all(
+                        _notifier_config, scan_results, target_url, _rate_limiter
+                    )
             elif scan_results:
                 # First scan with broken links - fire webhooks
                 broken = [r for r in scan_results if r.status and r.status >= 400]
@@ -264,6 +273,10 @@ class _Handler(BaseHTTPRequestHandler):
                         trigger_webhooks(_webhook_registry, target_url, scan_results)
 
                     threading.Thread(target=_fire_webhooks, daemon=True).start()
+                    # Notify synchronously after webhook trigger
+                    notify_all(
+                        _notifier_config, scan_results, target_url, _rate_limiter
+                    )
 
             response_format = params.get("format")
             if response_format is not None and response_format.lower() == "csv":
@@ -436,13 +449,28 @@ class _Handler(BaseHTTPRequestHandler):
                     history = get_history(url, limit=2)
                     if len(history) >= 2:
                         previous_results = history[1].get("results", [])
-                        current_results = [{"url": r.url, "status": r.status} for r in results]
+                        current_results = [
+                            {"url": r.url, "status": r.status}
+                            for r in results
+                        ]
                         diff = compute_diff(previous_results, current_results)
                         if diff.get("added_broken") or diff.get("fixed"):
                             def _fire_webhooks(u=url, r=results) -> None:
                                 trigger_webhooks(_webhook_registry, u, r)
 
                             threading.Thread(target=_fire_webhooks, daemon=True).start()
+                            # Notify synchronously after webhook trigger
+                            notify_all(_notifier_config, results, url, _rate_limiter)
+                    elif results:
+                        # First scan with broken links - fire webhooks
+                        broken = [r for r in results if r.status and r.status >= 400]
+                        if broken:
+                            def _fire_webhooks(u=url, r=results) -> None:
+                                trigger_webhooks(_webhook_registry, u, r)
+
+                            threading.Thread(target=_fire_webhooks, daemon=True).start()
+                            # Notify synchronously after webhook trigger
+                            notify_all(_notifier_config, results, url, _rate_limiter)
 
             # Flatten results for non-JSON formats
             all_results = []
