@@ -343,6 +343,133 @@ python -m brokenlinkbrief.app
 curl "http://127.0.0.1:8000/scan?url=https://example.com"
 ```
 
+## Dashboard
+
+BrokenLinkBrief includes a **monitoring dashboard** at `/dashboard` — a self-contained HTML/JS page that visualizes historical scan data with real-time Chart.js charts.
+
+Open it in your browser while the server is running:
+
+```
+http://127.0.0.1:8000/dashboard
+```
+
+> **Tip**: The dashboard queries its data from the REST API endpoints below. Data comes from the `.history/` JSONL store — scans are automatically recorded by `/scan` and `/scan-batch`.
+
+### What's on the Dashboard
+
+| Component | Description |
+|-----------|-------------|
+| **Summary Cards** | Total scans, broken link count, links checked, last scan date |
+| **Broken Links Trend** | Line chart — total vs broken links over time (daily aggregation) |
+| **Severity Breakdown** | Pie chart — critical (5xx) vs warning (4xx) vs info |
+| **Domain Breakdown** | Horizontal bar chart — top 10 domains with the most broken links |
+| **Date Range Filter** | Buttons for 7 days, 30 days, 90 days, or All time |
+
+### Dashboard API Endpoints
+
+All dashboard endpoints are **auth-gated**: if `BROKENLINKBRIEF_SCAN_TOKEN` is set, requests must include a `token` query parameter or `Authorization: Bearer` header.
+
+Each endpoint accepts an optional `days` query parameter to control the lookback window:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `days` | `int` | `7` | Number of days to look back. `0` = all time |
+
+#### `/api/dashboard/summary` — Aggregate Statistics
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/summary?days=30"
+```
+
+Response:
+```json
+{
+  "total_scans": 42,
+  "total_broken": 17,
+  "total_links": 1283,
+  "unique_urls": 5,
+  "last_scan_timestamp": "2026-07-30T01:00:19+00:00"
+}
+```
+
+#### `/api/dashboard/trends` — Daily Trend Data
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/trends?days=7"
+```
+
+Response:
+```json
+[
+  {"date": "2026-07-24", "total": 48, "broken": 3},
+  {"date": "2026-07-25", "total": 52, "broken": 5},
+  {"date": "2026-07-26", "total": 44, "broken": 1}
+]
+```
+
+#### `/api/dashboard/severity` — HTTP Status Severity Breakdown
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/severity?days=90"
+```
+
+Response:
+```json
+{
+  "critical": 3,
+  "warning": 8,
+  "info": 6
+}
+```
+
+| Severity | HTTP Range | Meaning |
+|----------|-----------|---------|
+| `critical` | 5xx | Server errors |
+| `warning` | 4xx | Client errors (broken links) |
+| `info` | Other / fetch-failed | Timeouts, unreachable, 3xx broken redirects |
+
+#### `/api/dashboard/domains` — Domain Breakdown
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/domains?days=0"
+```
+
+Response:
+```json
+[
+  {"domain": "httpstat.us", "count": 12},
+  {"domain": "example.com", "count": 5},
+  {"domain": "old-blog.example.org", "count": 2}
+]
+```
+
+Results are sorted descending by count. The dashboard shows the top 10.
+
+### Authentication
+
+If `BROKENLINKBRIEF_SCAN_TOKEN` is set, pass it with any dashboard API call:
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/summary?token=your-token"
+# or
+curl -H "Authorization: Bearer your-token" \
+  "http://127.0.0.1:8000/api/dashboard/summary"
+```
+
+For the HTML dashboard, append `?token=your-token` to the URL:
+
+```
+http://127.0.0.1:8000/dashboard?token=your-token
+```
+
+### Dark Theme
+
+The dashboard uses a dark colour scheme designed for always-on monitoring displays:
+- Background: `#1a1a2e` (deep navy)
+- Accent: `#e94560` (red for broken-link prominence)
+- Cards: `#16213e` with `#0f3460` borders
+- Chart.js respects the theme via custom colour configuration
+
 ## Deploy to Railway
 
 [![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new)

@@ -7,8 +7,8 @@ import subprocess
 import sys
 import time
 import urllib.request
-from urllib.error import HTTPError
 from pathlib import Path
+from urllib.error import HTTPError
 
 import pytest
 

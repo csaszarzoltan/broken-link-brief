@@ -69,7 +69,113 @@ Logged fields:
 - `latency_seconds`: elapsed wall time for `scan_page`
 - `status`: `ok` when `broken_count == 0`, otherwise `error`
 
-### Notes
+### Dashboard API
+
+The dashboard endpoints provide aggregated historical scan data for the monitoring UI. All endpoints require authentication when `BROKENLINKBRIEF_SCAN_TOKEN` is set.
+
+### `/api/dashboard/summary`
+
+Aggregate statistics across all scanned URLs.
+
+| Method | Auth | Params |
+|--------|------|--------|
+| GET | Same as `/scan` | `days` (int, default 7, 0 = all time) |
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/summary?days=30&token=secret"
+```
+
+Response:
+```json
+{
+  "total_scans": 42,
+  "total_broken": 17,
+  "total_links": 1283,
+  "unique_urls": 5,
+  "last_scan_timestamp": "2026-07-30T01:00:19+00:00"
+}
+```
+
+### `/api/dashboard/trends`
+
+Daily-aggregated total vs broken link counts for line charts.
+
+| Method | Auth | Params |
+|--------|------|--------|
+| GET | Same as `/scan` | `days` (int, default 7) |
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/trends?days=7&token=secret"
+```
+
+Response:
+```json
+[
+  {"date": "2026-07-24", "total": 48, "broken": 3},
+  {"date": "2026-07-30", "total": 52, "broken": 1}
+]
+```
+
+### `/api/dashboard/severity`
+
+Broken links grouped by HTTP status severity.
+
+| Method | Auth | Params |
+|--------|------|--------|
+| GET | Same as `/scan` | `days` (int, default 7) |
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/severity?days=90&token=secret"
+```
+
+Response:
+```json
+{
+  "critical": 3,
+  "warning": 8,
+  "info": 6
+}
+```
+
+| Severity | HTTP Range |
+|----------|-----------|
+| `critical` | 5xx |
+| `warning` | 4xx |
+| `info` | Other / fetch-failed |
+
+### `/api/dashboard/domains`
+
+Broken links grouped by domain, sorted descending.
+
+| Method | Auth | Params |
+|--------|------|--------|
+| GET | Same as `/scan` | `days` (int, default 7) |
+
+```bash
+curl "http://127.0.0.1:8000/api/dashboard/domains?days=0&token=secret"
+```
+
+Response:
+```json
+[
+  {"domain": "httpstat.us", "count": 12},
+  {"domain": "example.com", "count": 5}
+]
+```
+
+### HTML Dashboard
+
+The `/dashboard` endpoint serves a Chart.js-powered HTML page that consumes all four API endpoints automatically.
+
+```
+http://127.0.0.1:8000/dashboard?token=secret
+```
+
+- Dark theme with summary cards and interactive charts
+- Date range filter: 7 days, 30 days, 90 days, All time
+- Charts: trend line, severity pie, domain bar (top 10)
+
+## Notes
 - Query-string tokens may appear in access logs. Prefer the `Authorization` header in production.
 - `/health` remains public regardless of token configuration.
 - Secrets must match exactly; no hashing or expiration is applied.

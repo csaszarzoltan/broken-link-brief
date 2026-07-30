@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.9.0 (2026-07-30)
+
+### Features
+- **Monitoring dashboard** — real-time HTML dashboard at `/dashboard` with Chart.js visualizations for historical trends, severity breakdown, and domain distribution
+- **Dashboard API endpoints** — four RESTful endpoints (`/api/dashboard/summary`, `/api/dashboard/trends`, `/api/dashboard/severity`, `/api/dashboard/domains`) with full auth protection
+- **HistoryStore analytics** — `get_dashboard_summary()`, `get_trend_data()`, `get_severity_breakdown()`, `get_domain_breakdown()` methods for programmatic access to scan analytics
+- **Dark theme UI** — sleek dark-themed dashboard with summary cards, date range controls, and empty-history handling
+- **Auth-gated dashboard** — all dashboard endpoints require valid scan token authentication
+
+### Fixes
+- **Code review compliance** — applied 11+ ruff fixes across dashboard code (E501 line-length, N806 naming, A002 noqa, import sorting, trailing whitespace) ensuring src/ remains lint-clean
+
+### Tests
+- Added 17 dashboard tests covering API endpoints, HTML rendering, auth gating, empty history edge cases, Chart.js CDN presence, dark theme CSS, chart canvases, date range controls, and summary cards
+- Total test count: 289 (up from 272)
+- Coverage: 83% (maintaining ≥80% threshold)
+
 ## v0.8.0 (2026-07-27)
 
 ### Features
