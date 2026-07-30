@@ -57,3 +57,17 @@
 - SSRF protection for scan targets
 - Railway deployment support
 - JSONL usage logging
+
+### v1.0.0 (2026-07-30)
+
+#### Product capabilities
+- Added durable SQLite-backed project schedules with atomic worker leasing and timezone validation.
+- Added source-aware link occurrence extraction and an assignable repair queue.
+- Added evidence-based confidence classification for transient, bot-blocked, recovered, and confirmed broken links.
+- Added a centralized outbound crawl policy for scheme, port, DNS/IP, redirect, and resource controls.
+- Added organization membership, RBAC, hashed service credentials, and an audit-ready persistence model.
+- Added a deterministic CI baseline evaluator and `brokenlinkbrief` CLI with stable exit codes.
+
+#### Quality
+- Added isolated tests for all six product capabilities, including negative and security cases.
+- Preserved the existing HTTP and export contracts.

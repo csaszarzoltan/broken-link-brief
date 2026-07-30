@@ -382,3 +382,58 @@ ruff check .
 ## License
 
 MIT
+
+## Product workflows added in 1.0
+
+BrokenLinkBrief now exposes six independent, dependency-light building blocks. They use the Python standard library and can be embedded without replacing the existing HTTP API.
+
+### Durable schedules
+
+`ScheduleStore` persists project schedules in SQLite and atomically leases due work so a due slot is not claimed twice after a process restart.
+
+```python
+from brokenlinkbrief.scheduler import ScheduleStore
+
+store = ScheduleStore("brokenlinkbrief.db")
+store.create("docs", "*/15 * * * *", "Europe/Zurich", next_due_at=0)
+due = store.claim_due(now=1, worker_id="worker-1")
+```
+
+### Source-aware repair queue
+
+`extract_occurrences()` retains the source page, resolved target, anchor text, and HTML context. `FindingStore` persists findings and prevents conflicting assignments.
+
+### Confidence classification
+
+`classify_evidence()` distinguishes `UNVERIFIED`, `TRANSIENT`, `BOT_BLOCKED`, `RECOVERED`, `INCONCLUSIVE`, and `CONFIRMED_BROKEN`. A terminal 404 or 410 requires repeated evidence before confirmation.
+
+### Secure outbound policy
+
+`validate_target()` rejects unsupported schemes, unapproved ports, private, loopback, link-local, reserved, multicast, and unspecified destinations. `validate_redirect_chain()` revalidates every hop and enforces the redirect budget.
+
+### Organizations and RBAC
+
+`GovernanceStore` supports organizations, `VIEWER`, `OPERATOR`, and `ADMIN` memberships, capability checks, and hashed service credentials. Plaintext credentials are returned once and are never stored.
+
+### CI quality gate
+
+Generate a baseline and evaluate findings with stable exit codes:
+
+```powershell
+brokenlinkbrief baseline --findings findings.json --output baseline.json
+brokenlinkbrief ci --findings findings.json --baseline baseline.json --max-new 0
+```
+
+Exit code `0` means pass, `2` means new confirmed findings exceeded policy, and invalid baseline data is rejected explicitly.
+
+## Architecture
+
+Each capability is isolated in its own module: `scheduler`, `triage`, `confidence`, `policy`, `governance`, and `ci_gate`. Domain models are immutable dataclasses, SQLite adapters own persistence, and the CLI depends only on the CI application API. The existing `app.py`, scan endpoints, renderers, and notification contracts remain available for backward compatibility.
+
+## Testing the 1.0 capabilities
+
+```powershell
+$env:PYTHONPATH="src"
+python -m pytest -q tests/test_product_features.py
+python -m compileall -q src tests
+```
