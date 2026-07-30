@@ -398,7 +398,10 @@ class HistoryStore:
 
     def __init__(self, history_dir: str | Path | None = None) -> None:
         self._lock = Lock()
-        self._dir = (Path(history_dir) if history_dir else _HISTORY_DIR)
+        raw = Path(history_dir) if history_dir else _HISTORY_DIR
+        if isinstance(raw, str):
+            raw = Path(raw)
+        self._dir: Path = raw
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _make_path(self, url: str, timestamp: str) -> Path:
@@ -468,6 +471,216 @@ class HistoryStore:
             # Sort by timestamp descending (newest first)
             records.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
             return records[:limit]
+
+    def _read_all_records(
+        self, since: str | None = None, until: str | None = None
+    ) -> list[dict]:
+        """Read all history records across JSONL files with optional date filtering.
+
+        Returns list of record dicts sorted by timestamp ascending.
+        """
+        records: list[dict] = []
+        with self._lock:
+            for file_path in self._dir.glob("*.jsonl"):
+                try:
+                    with open(file_path, encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            record = json.loads(line)
+                            ts = record.get("timestamp", "")
+                            if since and ts < since:
+                                continue
+                            if until and ts > until:
+                                continue
+                            records.append(record)
+                except (OSError, json.JSONDecodeError):
+                    continue
+        records.sort(key=lambda x: x.get("timestamp", ""))
+        return records
+
+    def get_dashboard_summary(
+        self,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict:
+        """Aggregate ALL history records into a summary dict.
+
+        Returns:
+            {
+                "total_scans": int,
+                "total_broken": int,
+                "total_links": int,
+                "unique_urls": int,
+                "last_scan_timestamp": str | None,
+            }
+        """
+        records = self._read_all_records(since, until)
+        if not records:
+            return {
+                "total_scans": 0,
+                "total_broken": 0,
+                "total_links": 0,
+                "unique_urls": 0,
+                "last_scan_timestamp": None,
+            }
+
+        total_scans = len(records)
+        all_urls: set[str] = set()
+        total_broken = 0
+        total_links = 0
+
+        for record in records:
+            scanned_url = record.get("url", "")
+            all_urls.add(scanned_url)
+            results = record.get("results", [])
+            total_links += len(results)
+            for r in results:
+                status = r.get("status")
+                is_broken = (
+                    (status is not None and status >= 400)
+                    or (status is None and r.get("reason") is not None)
+                )
+                if is_broken:
+                    total_broken += 1
+
+        last_scan = records[-1].get("timestamp") if records else None
+
+        return {
+            "total_scans": total_scans,
+            "total_broken": total_broken,
+            "total_links": total_links,
+            "unique_urls": len(all_urls),
+            "last_scan_timestamp": last_scan,
+        }
+
+    def get_trend_data(
+        self,
+        days: int = 7,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict]:
+        """Group history records by day, count total vs broken links.
+
+        Returns list of {date: "YYYY-MM-DD", total: N, broken: N} sorted ascending.
+        """
+        from collections import OrderedDict
+
+        records = self._read_all_records(since, until)
+
+        # Filter by days if no explicit since
+        if since is None and days:
+            from datetime import datetime, timedelta, timezone
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff_str = cutoff.isoformat()
+            records = [r for r in records if r.get("timestamp", "") >= cutoff_str]
+
+        daily: dict[str, dict[str, int]] = OrderedDict()
+        for record in records:
+            ts = record.get("timestamp", "")
+            date_key = ts.split("T")[0] if "T" in ts else ts[:10]
+            if date_key not in daily:
+                daily[date_key] = {"date": date_key, "total": 0, "broken": 0}
+            results = record.get("results", [])
+            daily[date_key]["total"] += len(results)
+            for r in results:
+                status = r.get("status")
+                is_broken = (
+                    (status is not None and status >= 400)
+                    or (status is None and r.get("reason") is not None)
+                )
+                if is_broken:
+                    daily[date_key]["broken"] += 1
+
+        return list(daily.values())
+
+    def get_severity_breakdown(
+        self,
+        days: int = 7,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict:
+        """Count broken links by HTTP severity.
+
+        5xx = critical, 4xx = warning, other = info.
+
+        Returns {critical: N, warning: N, info: N}.
+        """
+        records = self._read_all_records(since, until)
+
+        # Filter by days if no explicit since
+        if since is None and days:
+            from datetime import datetime, timedelta, timezone
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff_str = cutoff.isoformat()
+            records = [r for r in records if r.get("timestamp", "") >= cutoff_str]
+
+        critical = 0
+        warning = 0
+        info = 0
+
+        for record in records:
+            for r in record.get("results", []):
+                status = r.get("status")
+                if status is not None and status >= 400:
+                    if 500 <= status < 600:
+                        critical += 1
+                    elif 400 <= status < 500:
+                        warning += 1
+                    else:
+                        info += 1
+                elif status is None and r.get("reason") is not None:
+                    info += 1
+
+        return {"critical": critical, "warning": warning, "info": info}
+
+    def get_domain_breakdown(
+        self,
+        days: int = 7,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict]:
+        """Group broken links by domain, sorted descending by count.
+
+        Returns [{domain: "example.com", count: N}, ...].
+        """
+        from urllib.parse import urlparse
+
+        records = self._read_all_records(since, until)
+
+        # Filter by days if no explicit since
+        if since is None and days:
+            from datetime import datetime, timedelta, timezone
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            cutoff_str = cutoff.isoformat()
+            records = [r for r in records if r.get("timestamp", "") >= cutoff_str]
+
+        domains: dict[str, int] = {}
+        for record in records:
+            for r in record.get("results", []):
+                status = r.get("status")
+                is_broken = (
+                    (status is not None and status >= 400)
+                    or (status is None and r.get("reason") is not None)
+                )
+                if is_broken:
+                    try:
+                        parsed = urlparse(r.get("url", ""))
+                        domain = parsed.hostname or "unknown"
+                        domains[domain] = domains.get(domain, 0) + 1
+                    except Exception:
+                        domains["unknown"] = domains.get("unknown", 0) + 1
+
+        sorted_domains = sorted(
+            [{"domain": d, "count": c} for d, c in domains.items()],
+            key=lambda x: x["count"],
+            reverse=True,
+        )
+        return sorted_domains
 
 
 def record_scan(results: list[LinkResult], url: str) -> None:

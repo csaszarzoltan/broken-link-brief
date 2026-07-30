@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
+    HistoryStore,
     compute_diff,
     get_configured_scan_token,
     get_history,
@@ -205,6 +206,153 @@ def _log_scan(
             log_file.close()
 
 
+_DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrokenLinkBrief Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; min-height: 100vh; }
+  h1 { color: #e94560; font-size: 1.5rem; margin-bottom: 20px; text-align: center; }
+  .filters { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; flex-wrap: wrap; }
+  .filters button { background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: all 0.2s; }
+  .filters button:hover { background: #0f3460; }
+  .filters button.active { background: #e94560; border-color: #e94560; color: #fff; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+  .card { background: #16213e; border-radius: 10px; padding: 20px; text-align: center; border: 1px solid #0f3460; }
+  .card .value { font-size: 2rem; font-weight: 700; color: #e94560; }
+  .card .label { font-size: 0.8rem; color: #8892b0; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .charts { display: grid; grid-template-columns: 1fr; gap: 24px; }
+  .chart-container { background: #16213e; border-radius: 10px; padding: 20px; border: 1px solid #0f3460; }
+  .chart-container h2 { font-size: 1rem; color: #8892b0; margin-bottom: 12px; }
+  .chart-container canvas { max-height: 300px; }
+  @media (min-width: 768px) { .charts { grid-template-columns: 1fr 1fr; } .chart-container.trend { grid-column: 1 / -1; } }
+  @media (min-width: 1280px) { body { max-width: 1200px; margin: 0 auto; } .cards { grid-template-columns: repeat(4, 1fr); } }
+  .loading { text-align: center; padding: 40px; color: #8892b0; }
+  .error { text-align: center; padding: 20px; color: #e94560; }
+</style>
+</head>
+<body>
+<h1>BrokenLinkBrief Dashboard</h1>
+<div class="filters">
+  <button onclick="setDays(7)" class="active" id="d7">7 days</button>
+  <button onclick="setDays(30)" id="d30">30 days</button>
+  <button onclick="setDays(90)" id="d90">90 days</button>
+  <button onclick="setDays(0)" id="d0">All time</button>
+</div>
+<div class="cards" id="summaryCards">
+  <div class="card"><div class="value" id="totalScans">-</div><div class="label">Total Scans</div></div>
+  <div class="card"><div class="value" id="totalBroken">-</div><div class="label">Broken Links</div></div>
+  <div class="card"><div class="value" id="totalLinks">-</div><div class="label">Links Checked</div></div>
+  <div class="card"><div class="value" id="lastScan">-</div><div class="label">Last Scan</div></div>
+</div>
+<div class="charts">
+  <div class="chart-container trend"><h2>Broken Links Trend</h2><canvas id="trendChart"></canvas></div>
+  <div class="chart-container"><h2>Severity Breakdown</h2><canvas id="severityChart"></canvas></div>
+  <div class="chart-container"><h2>Domain Breakdown</h2><canvas id="domainChart"></canvas></div>
+</div>
+<script>
+let currentDays = 7;
+let trendChartInstance = null;
+let severityChartInstance = null;
+let domainChartInstance = null;
+
+function getToken() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
+  if (token) return `token=${token}`;
+  return '';
+}
+
+async function setDays(days) {
+  currentDays = days;
+  document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById(`d${days}`);
+  if (btn) btn.classList.add('active');
+  await loadAll();
+}
+
+async function loadAll() {
+  const daysParam = currentDays > 0 ? `days=${currentDays}` : '';
+  const token = getToken();
+  const sep = token ? (daysParam ? '&' : '?') : '';
+  const suffix = daysParam || token ? `?${daysParam}${sep}${token}` : '';
+
+  try {
+    const [summaryRes, trendsRes, severityRes, domainsRes] = await Promise.all([
+      fetch(`/api/dashboard/summary${suffix}`),
+      fetch(`/api/dashboard/trends${suffix}`),
+      fetch(`/api/dashboard/severity${suffix}`),
+      fetch(`/api/dashboard/domains${suffix}`),
+    ]);
+    if (!summaryRes.ok || !trendsRes.ok || !severityRes.ok || !domainsRes.ok) {
+      document.querySelector('.charts').innerHTML = '<div class="error">Failed to load dashboard data. Check server logs.</div>';
+      return;
+    }
+    const summary = await summaryRes.json();
+    const trends = await trendsRes.json();
+    const severity = await severityRes.json();
+    const domains = await domainsRes.json();
+
+    // Update summary cards
+    document.getElementById('totalScans').textContent = summary.total_scans ?? '-';
+    document.getElementById('totalBroken').textContent = summary.total_broken ?? '-';
+    document.getElementById('totalLinks').textContent = summary.total_links ?? '-';
+    document.getElementById('lastScan').textContent = summary.last_scan_timestamp ? new Date(summary.last_scan_timestamp).toLocaleDateString() : '-';
+
+    // Trend chart
+    if (trendChartInstance) trendChartInstance.destroy();
+    const trendCtx = document.getElementById('trendChart').getContext('2d');
+    trendChartInstance = new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: trends.map(d => d.date),
+        datasets: [
+          { label: 'Total links', data: trends.map(d => d.total), borderColor: '#0f3460', backgroundColor: 'rgba(15,52,96,0.1)', fill: true, tension: 0.3 },
+          { label: 'Broken links', data: trends.map(d => d.broken), borderColor: '#e94560', backgroundColor: 'rgba(233,69,96,0.1)', fill: true, tension: 0.3 },
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8892b0' } } }, scales: { x: { ticks: { color: '#8892b0' } }, y: { ticks: { color: '#8892b0' } } } }
+    });
+
+    // Severity pie chart
+    if (severityChartInstance) severityChartInstance.destroy();
+    const sevCtx = document.getElementById('severityChart').getContext('2d');
+    severityChartInstance = new Chart(sevCtx, {
+      type: 'pie',
+      data: {
+        labels: ['Critical (5xx)', 'Warning (4xx)', 'Info (other)'],
+        datasets: [{ data: [severity.critical || 0, severity.warning || 0, severity.info || 0], backgroundColor: ['#e94560', '#f5a623', '#0f3460'] }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8892b0' } } } }
+    });
+
+    // Domain bar chart
+    if (domainChartInstance) domainChartInstance.destroy();
+    const domCtx = document.getElementById('domainChart').getContext('2d');
+    const topDomains = domains.slice(0, 10);
+    domainChartInstance = new Chart(domCtx, {
+      type: 'bar',
+      data: {
+        labels: topDomains.map(d => d.domain),
+        datasets: [{ label: 'Broken links', data: topDomains.map(d => d.count), backgroundColor: '#e94560' }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8892b0' } }, y: { ticks: { color: '#8892b0' } } } }
+    });
+  } catch (e) {
+    document.querySelector('.charts').innerHTML = `<div class="error">Error loading data: ${e.message}</div>`;
+  }
+}
+
+loadAll();
+</script>
+</body>
+</html>"""
+
+
 class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -317,6 +465,67 @@ class _Handler(BaseHTTPRequestHandler):
             # Authenticate and get history
             results = get_history(target_url)
             _write_json(self, 200, results)
+            return
+
+        # DASHBOARD ENDPOINTS
+        if path.startswith("/api/dashboard/"):
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            store = HistoryStore()
+            subpath = path[len("/api/dashboard/"):]
+
+            if subpath == "summary":
+                result = store.get_dashboard_summary()
+                _write_json(self, 200, result)
+                return
+
+            if subpath == "trends":
+                try:
+                    days = int(params.get("days", "7"))
+                except (ValueError, TypeError):
+                    days = 7
+                result = store.get_trend_data(days=days)
+                _write_json(self, 200, result)
+                return
+
+            if subpath == "severity":
+                try:
+                    days = int(params.get("days", "7"))
+                except (ValueError, TypeError):
+                    days = 7
+                result = store.get_severity_breakdown(days=days)
+                _write_json(self, 200, result)
+                return
+
+            if subpath == "domains":
+                try:
+                    days = int(params.get("days", "7"))
+                except (ValueError, TypeError):
+                    days = 7
+                result = store.get_domain_breakdown(days=days)
+                _write_json(self, 200, result)
+                return
+
+            _write_json(self, 404, {"detail": "not found"})
+            return
+
+        if path == "/dashboard":
+            html = _DASHBOARD_HTML
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
 
         _write_json(self, 404, {"detail": "not found"})
