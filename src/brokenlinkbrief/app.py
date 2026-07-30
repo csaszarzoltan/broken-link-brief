@@ -215,22 +215,54 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; min-height: 100vh; }
-  h1 { color: #e94560; font-size: 1.5rem; margin-bottom: 20px; text-align: center; }
-  .filters { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; flex-wrap: wrap; }
-  .filters button { background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: all 0.2s; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      Oxygen, sans-serif;
+    background: #1a1a2e; color: #e0e0e0; padding: 20px; min-height: 100vh;
+  }
+  h1 { color: #e94560; font-size: 1.5rem; margin-bottom: 20px;
+    text-align: center; }
+  .filters {
+    display: flex; gap: 8px; justify-content: center;
+    margin-bottom: 24px; flex-wrap: wrap;
+  }
+  .filters button {
+    background: #16213e; color: #e0e0e0; border: 1px solid #0f3460;
+    padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    font-size: 0.875rem; transition: all 0.2s;
+  }
   .filters button:hover { background: #0f3460; }
-  .filters button.active { background: #e94560; border-color: #e94560; color: #fff; }
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
-  .card { background: #16213e; border-radius: 10px; padding: 20px; text-align: center; border: 1px solid #0f3460; }
+  .filters button.active {
+    background: #e94560; border-color: #e94560; color: #fff;
+  }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px; margin-bottom: 28px;
+  }
+  .card {
+    background: #16213e; border-radius: 10px; padding: 20px;
+    text-align: center; border: 1px solid #0f3460;
+  }
   .card .value { font-size: 2rem; font-weight: 700; color: #e94560; }
-  .card .label { font-size: 0.8rem; color: #8892b0; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .card .label {
+    font-size: 0.8rem; color: #8892b0; margin-top: 6px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
   .charts { display: grid; grid-template-columns: 1fr; gap: 24px; }
-  .chart-container { background: #16213e; border-radius: 10px; padding: 20px; border: 1px solid #0f3460; }
+  .chart-container {
+    background: #16213e; border-radius: 10px; padding: 20px;
+    border: 1px solid #0f3460;
+  }
   .chart-container h2 { font-size: 1rem; color: #8892b0; margin-bottom: 12px; }
   .chart-container canvas { max-height: 300px; }
-  @media (min-width: 768px) { .charts { grid-template-columns: 1fr 1fr; } .chart-container.trend { grid-column: 1 / -1; } }
-  @media (min-width: 1280px) { body { max-width: 1200px; margin: 0 auto; } .cards { grid-template-columns: repeat(4, 1fr); } }
+  @media (min-width: 768px) {
+    .charts { grid-template-columns: 1fr 1fr; }
+    .chart-container.trend { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1280px) {
+    body { max-width: 1200px; margin: 0 auto; }
+    .cards { grid-template-columns: repeat(4, 1fr); }
+  }
   .loading { text-align: center; padding: 40px; color: #8892b0; }
   .error { text-align: center; padding: 20px; color: #e94560; }
 </style>
@@ -244,15 +276,36 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <button onclick="setDays(0)" id="d0">All time</button>
 </div>
 <div class="cards" id="summaryCards">
-  <div class="card"><div class="value" id="totalScans">-</div><div class="label">Total Scans</div></div>
-  <div class="card"><div class="value" id="totalBroken">-</div><div class="label">Broken Links</div></div>
-  <div class="card"><div class="value" id="totalLinks">-</div><div class="label">Links Checked</div></div>
-  <div class="card"><div class="value" id="lastScan">-</div><div class="label">Last Scan</div></div>
+  <div class="card">
+    <div class="value" id="totalScans">-</div>
+    <div class="label">Total Scans</div>
+  </div>
+  <div class="card">
+    <div class="value" id="totalBroken">-</div>
+    <div class="label">Broken Links</div>
+  </div>
+  <div class="card">
+    <div class="value" id="totalLinks">-</div>
+    <div class="label">Links Checked</div>
+  </div>
+  <div class="card">
+    <div class="value" id="lastScan">-</div>
+    <div class="label">Last Scan</div>
+  </div>
 </div>
 <div class="charts">
-  <div class="chart-container trend"><h2>Broken Links Trend</h2><canvas id="trendChart"></canvas></div>
-  <div class="chart-container"><h2>Severity Breakdown</h2><canvas id="severityChart"></canvas></div>
-  <div class="chart-container"><h2>Domain Breakdown</h2><canvas id="domainChart"></canvas></div>
+  <div class="chart-container trend">
+    <h2>Broken Links Trend</h2>
+    <canvas id="trendChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <h2>Severity Breakdown</h2>
+    <canvas id="severityChart"></canvas>
+  </div>
+  <div class="chart-container">
+    <h2>Domain Breakdown</h2>
+    <canvas id="domainChart"></canvas>
+  </div>
 </div>
 <script>
 let currentDays = 7;
@@ -269,7 +322,9 @@ function getToken() {
 
 async function setDays(days) {
   currentDays = days;
-  document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.filters button').forEach(
+    b => b.classList.remove('active')
+  );
   const btn = document.getElementById(`d${days}`);
   if (btn) btn.classList.add('active');
   await loadAll();
@@ -282,14 +337,20 @@ async function loadAll() {
   const suffix = daysParam || token ? `?${daysParam}${sep}${token}` : '';
 
   try {
-    const [summaryRes, trendsRes, severityRes, domainsRes] = await Promise.all([
-      fetch(`/api/dashboard/summary${suffix}`),
-      fetch(`/api/dashboard/trends${suffix}`),
-      fetch(`/api/dashboard/severity${suffix}`),
-      fetch(`/api/dashboard/domains${suffix}`),
-    ]);
-    if (!summaryRes.ok || !trendsRes.ok || !severityRes.ok || !domainsRes.ok) {
-      document.querySelector('.charts').innerHTML = '<div class="error">Failed to load dashboard data. Check server logs.</div>';
+    const [summaryRes, trendsRes, severityRes, domainsRes]
+      = await Promise.all([
+        fetch(`/api/dashboard/summary${suffix}`),
+        fetch(`/api/dashboard/trends${suffix}`),
+        fetch(`/api/dashboard/severity${suffix}`),
+        fetch(`/api/dashboard/domains${suffix}`),
+      ]);
+    if (
+      !summaryRes.ok || !trendsRes.ok
+      || !severityRes.ok || !domainsRes.ok
+    ) {
+      document.querySelector('.charts').innerHTML
+        = '<div class="error">Failed to load dashboard data.'
+        + ' Check server logs.</div>';
       return;
     }
     const summary = await summaryRes.json();
@@ -298,10 +359,16 @@ async function loadAll() {
     const domains = await domainsRes.json();
 
     // Update summary cards
-    document.getElementById('totalScans').textContent = summary.total_scans ?? '-';
-    document.getElementById('totalBroken').textContent = summary.total_broken ?? '-';
-    document.getElementById('totalLinks').textContent = summary.total_links ?? '-';
-    document.getElementById('lastScan').textContent = summary.last_scan_timestamp ? new Date(summary.last_scan_timestamp).toLocaleDateString() : '-';
+    document.getElementById('totalScans').textContent
+      = summary.total_scans ?? '-';
+    document.getElementById('totalBroken').textContent
+      = summary.total_broken ?? '-';
+    document.getElementById('totalLinks').textContent
+      = summary.total_links ?? '-';
+    document.getElementById('lastScan').textContent
+      = summary.last_scan_timestamp
+        ? new Date(summary.last_scan_timestamp).toLocaleDateString()
+        : '-';
 
     // Trend chart
     if (trendChartInstance) trendChartInstance.destroy();
@@ -311,11 +378,30 @@ async function loadAll() {
       data: {
         labels: trends.map(d => d.date),
         datasets: [
-          { label: 'Total links', data: trends.map(d => d.total), borderColor: '#0f3460', backgroundColor: 'rgba(15,52,96,0.1)', fill: true, tension: 0.3 },
-          { label: 'Broken links', data: trends.map(d => d.broken), borderColor: '#e94560', backgroundColor: 'rgba(233,69,96,0.1)', fill: true, tension: 0.3 },
+          {
+            label: 'Total links',
+            data: trends.map(d => d.total),
+            borderColor: '#0f3460',
+            backgroundColor: 'rgba(15,52,96,0.1)',
+            fill: true, tension: 0.3,
+          },
+          {
+            label: 'Broken links',
+            data: trends.map(d => d.broken),
+            borderColor: '#e94560',
+            backgroundColor: 'rgba(233,69,96,0.1)',
+            fill: true, tension: 0.3,
+          },
         ]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8892b0' } } }, scales: { x: { ticks: { color: '#8892b0' } }, y: { ticks: { color: '#8892b0' } } } }
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8892b0' } } },
+        scales: {
+          x: { ticks: { color: '#8892b0' } },
+          y: { ticks: { color: '#8892b0' } },
+        },
+      },
     });
 
     // Severity pie chart
@@ -325,9 +411,19 @@ async function loadAll() {
       type: 'pie',
       data: {
         labels: ['Critical (5xx)', 'Warning (4xx)', 'Info (other)'],
-        datasets: [{ data: [severity.critical || 0, severity.warning || 0, severity.info || 0], backgroundColor: ['#e94560', '#f5a623', '#0f3460'] }]
+        datasets: [{
+          data: [
+            severity.critical || 0,
+            severity.warning || 0,
+            severity.info || 0,
+          ],
+          backgroundColor: ['#e94560', '#f5a623', '#0f3460'],
+        }]
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: '#8892b0' } } } }
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8892b0' } } },
+      },
     });
 
     // Domain bar chart
@@ -338,12 +434,24 @@ async function loadAll() {
       type: 'bar',
       data: {
         labels: topDomains.map(d => d.domain),
-        datasets: [{ label: 'Broken links', data: topDomains.map(d => d.count), backgroundColor: '#e94560' }]
+        datasets: [{
+          label: 'Broken links',
+          data: topDomains.map(d => d.count),
+          backgroundColor: '#e94560',
+        }]
       },
-      options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#8892b0' } }, y: { ticks: { color: '#8892b0' } } } }
+      options: {
+        responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#8892b0' } },
+          y: { ticks: { color: '#8892b0' } },
+        },
+      },
     });
   } catch (e) {
-    document.querySelector('.charts').innerHTML = `<div class="error">Error loading data: ${e.message}</div>`;
+    document.querySelector('.charts').innerHTML
+      = `<div class="error">Error loading data: ${e.message}</div>`;
   }
 }
 
@@ -760,7 +868,10 @@ class _Handler(BaseHTTPRequestHandler):
             previous = body.get("previous")
             current = body.get("current")
             if not previous or not current:
-                _write_json(self, 400, {"detail": "missing previous or current in request"})
+                _write_json(
+                    self, 400,
+                    {"detail": "missing previous or current in request"},
+                )
                 return
 
             diff_result = compute_diff(previous, current)
@@ -769,7 +880,7 @@ class _Handler(BaseHTTPRequestHandler):
 
         _write_json(self, 404, {"detail": "not found"})
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A003
+    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         return
 
 

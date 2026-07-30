@@ -231,7 +231,7 @@ def validate_scan_url(url: str) -> str | None:
     from ipaddress import ip_address, ip_network
 
     # Exact hostname blocklist
-    _BLOCKED_HOSTS = frozenset({
+    _blocked_hosts = frozenset({
         "localhost",
         "local.host",
         "127.0.0.1",
@@ -244,10 +244,10 @@ def validate_scan_url(url: str) -> str | None:
     })
 
     # Hostname substring blocklist (catches *.local, *.internal, etc.)
-    _BLOCKED_SUBSTRINGS = ("local", "internal", "localhost")
+    _blocked_substrings = ("local", "internal", "localhost")
 
     # Comprehensive reserved network ranges (from ReceiptLens ssrf_guard)
-    _RESERVED_NETWORKS = (
+    _reserved_networks = (
         ip_network("127.0.0.0/8"),
         ip_network("::1/128"),
         ip_network("10.0.0.0/8"),
@@ -265,9 +265,9 @@ def validate_scan_url(url: str) -> str | None:
 
     def _is_blocked_host(host: str) -> bool:
         lowered = host.lower()
-        if lowered in _BLOCKED_HOSTS:
+        if lowered in _blocked_hosts:
             return True
-        for suffix in _BLOCKED_SUBSTRINGS:
+        for suffix in _blocked_substrings:
             if lowered == suffix or lowered.endswith(f".{suffix}"):
                 return True
         return False
@@ -275,7 +275,7 @@ def validate_scan_url(url: str) -> str | None:
     def _is_reserved_ip(addr_str: str) -> bool:
         try:
             addr = ip_address(addr_str)
-            return any(addr in net for net in _RESERVED_NETWORKS)
+            return any(addr in net for net in _reserved_networks)
         except ValueError:
             return False
 
@@ -445,7 +445,9 @@ class HistoryStore:
             with open(path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
 
-    def get_history(self, url: str, limit: int = 100, since: str | None = None) -> list[dict]:
+    def get_history(
+        self, url: str, limit: int = 100, since: str | None = None,
+    ) -> list[dict]:
         """Return historical records for url, ordered by timestamp.
 
         Requires: limit >= 1, since is ISO string when provided.
@@ -703,9 +705,9 @@ def get_history(url: str, limit: int = 100, since: str | None = None) -> list[di
 
 
 def compute_diff(previous: list[dict], current: list[dict]) -> dict:
-    """Compare two scan snapshots and return added_broken, fixed, still_broken.
+    """Compare two scan snapshots, return added_broken, fixed, still_broken.
 
-    Requires: previous, current are lists of dicts with keys: url, status, broken flag (or compute from status).
+    Requires: previous, current are lists of dicts with keys: url, status.
     Returns: {"added_broken": [...], "fixed": [...], "still_broken": [...]}.
     """
     if not isinstance(previous, list) or not isinstance(current, list):
@@ -736,11 +738,14 @@ def compute_diff(previous: list[dict], current: list[dict]) -> dict:
         is_broken_now = is_broken(curr_map.get(url, {"url": url}))
 
         if was_broken and not is_broken_now:
-            fixed.append({"url": url, "status": curr_map.get(url, {}).get("status")} if url in curr_map else {"url": url, "status": 200})
+            _status = curr_map.get(url, {}).get("status") if url in curr_map else 200
+            fixed.append({"url": url, "status": _status})
         elif not was_broken and is_broken_now:
-            added_broken.append({"url": url, "status": curr_map.get(url, {}).get("status")} if url in curr_map else {"url": url, "status": 404})
+            _status = curr_map.get(url, {}).get("status") if url in curr_map else 404
+            added_broken.append({"url": url, "status": _status})
         elif is_broken_now:
-            still_broken.append({"url": url, "status": curr_map.get(url, {}).get("status")} if url in curr_map else {"url": url, "status": 404})
+            _status = curr_map.get(url, {}).get("status") if url in curr_map else 404
+            still_broken.append({"url": url, "status": _status})
 
     return {
         "added_broken": added_broken,
