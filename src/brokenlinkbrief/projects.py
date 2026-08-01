@@ -136,6 +136,37 @@ class ProjectStore:
     def list_archived(self) -> list[Project]:
         return self._list_by_archived(True)
 
+    def summarize(self, project: Project, history_store: object) -> dict[str, object]:
+        """Aggregate the latest retained scan for every project target."""
+        scanned_targets = 0
+        total_links = 0
+        broken_count = 0
+        last_scan_timestamp: str | None = None
+        for target in project.targets:
+            records = history_store.get_history(target, limit=1)
+            if not records:
+                continue
+            scanned_targets += 1
+            record = records[0]
+            timestamp = record.get("timestamp")
+            if timestamp and (last_scan_timestamp is None or timestamp > last_scan_timestamp):
+                last_scan_timestamp = timestamp
+            results = record.get("results", [])
+            total_links += len(results)
+            broken_count += sum(
+                1
+                for item in results
+                if (item.get("status") is not None and item.get("status") >= 400)
+                or (item.get("status") is None and item.get("reason") is not None)
+            )
+        return {
+            "scanned_targets": scanned_targets,
+            "unscanned_targets": len(project.targets) - scanned_targets,
+            "total_links": total_links,
+            "broken_count": broken_count,
+            "last_scan_timestamp": last_scan_timestamp,
+        }
+
     def update(self, project_id: str, name: str, targets: list[str]) -> Project:
         clean_name = name.strip()
         if not clean_name:

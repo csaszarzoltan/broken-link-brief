@@ -127,3 +127,22 @@ The initial saved-project increment removed repeated target entry, but users sti
 - Added authenticated PUT and restore routes.
 - Added browser Edit, Cancel edit, Show archived, Show active, and Restore actions.
 - Kept project IDs stable across edits and preserved scan history across archive/restore transitions.
+
+## 8. Continued increment: 1.1.2 one-action project scanning
+
+Version 1.1.2 removes the final repeated step in the saved-project workflow. Users no longer need to load targets and then submit the scan form. Active projects can be scanned directly, and each card communicates whether the project has ever been scanned and how many latest-snapshot links need attention.
+
+### Requirements added
+
+- **UR-PROJ-06, Must:** A user can start a saved project scan with one action.
+- **UX-PROJ-03, Must:** Project cards show a concise latest health state or an explicit Never scanned state.
+- **FR-PROJ-05, Must:** A project summary aggregates only the latest retained scan for each target.
+- **OPS-PROJ-02, Must:** History location can be configured for persistent production storage.
+- **QA-PROJ-03, Must:** Aggregation, empty history, API output, and browser quick-scan contracts have failing-first tests.
+
+### Implementation details
+
+- Added `ProjectStore.summarize()` using the latest history record for every target.
+- Enriched project API items with `scan_summary`.
+- Added `runProjectScan()` and a primary project-card action.
+- Added `BROKENLINKBRIEF_HISTORY_DIR` support to `HistoryStore` while preserving `.history` as the default.

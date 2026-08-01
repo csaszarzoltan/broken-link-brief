@@ -216,3 +216,17 @@
 #### Tests
 - Added TDD store, API integration, browser workflow, archive listing, and restore coverage.
 - Re-ran the complete regression suite and embedded JavaScript syntax validation.
+
+### v1.1.2 (2026-08-01)
+
+#### One-action project scanning
+- Added **Run project scan** for active projects.
+- Single-target projects immediately run the single scan workflow.
+- Multi-target projects immediately run the batch workflow.
+- Project cards now show the latest retained project health summary.
+- Added scanned/unscanned target counts, latest link total, failure count, and latest scan time to project API payloads.
+- Added `BROKENLINKBRIEF_HISTORY_DIR` so project summaries and scan history can share a configurable persistent location.
+
+#### Tests
+- Added failing-first tests for latest-scan aggregation, unscanned projects, API summaries, and one-action browser scanning.
+- Re-ran project lifecycle, JavaScript syntax, and full regression suites.

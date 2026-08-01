@@ -705,3 +705,22 @@ GET  /api/projects?archived=1
 ```
 
 Updates use the same target normalization, project limits, credential rejection, SSRF validation, and authentication rules as project creation.
+
+### Run and assess a project quickly
+
+Active project cards now include **Run project scan**. A single-target project immediately uses the single-page workflow; a multi-target project immediately uses the batch workflow. This removes the previous load-then-submit step.
+
+Project cards and `GET /api/projects` now expose a compact summary based on the latest retained scan for each target:
+
+- scanned and unscanned target counts
+- total links in the latest target snapshots
+- links needing attention
+- latest scan timestamp
+
+Configure persistent history independently when needed:
+
+```bash
+export BROKENLINKBRIEF_HISTORY_DIR=/data/history
+```
+
+Use persistent writable storage for both `BROKENLINKBRIEF_PROJECT_DB` and `BROKENLINKBRIEF_HISTORY_DIR` in production.

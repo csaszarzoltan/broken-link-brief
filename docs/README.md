@@ -198,3 +198,7 @@ The endpoints use dashboard authentication. Targets are normalized, deduplicated
 - `POST /api/projects/{id}/restore` restores an archived project.
 
 Project updates preserve stable IDs and rerun target validation.
+
+### Project scan summary
+
+Each project returned by `GET /api/projects` includes `scan_summary` with scanned and unscanned target counts, latest-snapshot link totals, broken count, and latest scan timestamp. The dashboard uses these fields for the project status line and one-action project execution.

@@ -1,35 +1,29 @@
-# BrokenLinkBrief 1.1.1 Validation Results
+# BrokenLinkBrief 1.1.2 Validation Results
 
 Validated on 2026-08-01 in the handoff environment.
 
-## Baselines
+## Release progression
 
-Before the saved-project work:
+- Original 1.0.7 baseline: `331 passed, 1 xpassed`
+- Saved projects 1.1.0: `339 passed, 1 xpassed`
+- Project lifecycle 1.1.1: `345 passed, 1 xpassed`
 
-```text
-331 passed, 1 xpassed in 24.77s
-```
+## 1.1.2 TDD evidence
 
-After version 1.1.0:
+Four failing-first tests were added for latest target-snapshot aggregation, unscanned-project summaries, project API summary output, and one-action project scanning. The initial run reported four failures because summary and quick-scan behavior did not exist.
 
-```text
-339 passed, 1 xpassed in 23.93s
-```
-
-## 1.1.1 TDD evidence
-
-Six failing-first tests were added for project update, archived listing, restore, PUT API behavior, restore API behavior, and dashboard lifecycle actions. The first execution reported six failures. Implementation then proceeded incrementally. During targeted regression, one restore-route placement defect remained and produced a 404; the route was moved to the POST handler and all focused tests passed.
-
-Focused result:
+Focused result after implementation:
 
 ```text
-15 passed in 1.11s
+19 passed in 1.84s
 ```
+
+This focused suite covered project creation, editing, archive/restore, latest-state summaries, quick scanning, API behavior, dashboard contracts, and embedded JavaScript syntax.
 
 ## Final automated regression
 
 ```text
-345 passed, 1 xpassed in 24.73s
+349 passed, 1 xpassed in 25.24s
 ```
 
 Command:

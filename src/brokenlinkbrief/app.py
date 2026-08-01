@@ -531,6 +531,15 @@ function apiTokenQuery() {
   return token ? `?token=${encodeURIComponent(token)}` : '';
 }
 
+function runProjectScan(project) {
+  loadProjectTargets(project);
+  if (project.targets.length === 1) {
+    document.getElementById('scanForm').requestSubmit();
+  } else {
+    document.getElementById('batchScanForm').requestSubmit();
+  }
+}
+
 function loadProjectTargets(project) {
   const targets = project.targets || [];
   if (targets.length === 1) {
@@ -557,14 +566,22 @@ async function loadProjects() {
     }
     container.innerHTML = projects.map((project, index) =>
       `<article class="project-item"><div><strong>${escapeHtml(project.name)}</strong>`
-      + `<span class="muted">${project.targets.length} target${project.targets.length === 1 ? '' : 's'}</span></div>`
-      + `<div class="recent-actions"><button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
+      + `<span class="muted">${project.targets.length} target${project.targets.length === 1 ? '' : 's'}</span>`
+      + `<span class="muted">${project.scan_summary && project.scan_summary.last_scan_timestamp
+        ? `${project.scan_summary.broken_count} need attention · last scan ${new Date(project.scan_summary.last_scan_timestamp).toLocaleString()}`
+        : 'Never scanned'}</span></div>`
+      + `<div class="recent-actions">`
+      + (!project.archived ? `<button type="button" class="primary" data-project-run="${index}">Run project scan</button>` : '')
+      + `<button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
       + (project.archived
         ? `<button type="button" class="secondary" data-project-restore="${index}">Restore</button>`
         : `<button type="button" class="secondary" data-project-edit="${index}">Edit</button>`
           + `<button type="button" class="icon-button" data-project-archive="${index}">Archive</button>`)
       + `</div></article>`
     ).join('');
+    container.querySelectorAll('[data-project-run]').forEach(button => {
+      button.addEventListener('click', () => runProjectScan(projects[Number(button.dataset.projectRun)]));
+    });
     container.querySelectorAll('[data-project-index]').forEach(button => {
       button.addEventListener('click', () => loadProjectTargets(projects[Number(button.dataset.projectIndex)]));
     });
@@ -1111,10 +1128,17 @@ class _Handler(BaseHTTPRequestHandler):
                 _write_json(self, 401, {"detail": _AUTH_DETAIL})
                 return
             store = ProjectStore()
-            projects = [
-                asdict(item)
-                for item in (store.list_archived() if params.get("archived") == "1" else store.list_active())
-            ]
+            selected = (
+                store.list_archived()
+                if params.get("archived") == "1"
+                else store.list_active()
+            )
+            history_store = HistoryStore()
+            projects = []
+            for item in selected:
+                payload = asdict(item)
+                payload["scan_summary"] = store.summarize(item, history_store)
+                projects.append(payload)
             _write_json(self, 200, projects)
             return
 

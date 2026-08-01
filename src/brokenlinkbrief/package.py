@@ -391,6 +391,7 @@ def render_jsonl(results: list[LinkResult]) -> str:
 # ============================================================================
 
 _HISTORY_DIR = Path(".history")
+_HISTORY_DIR_ENV = "BROKENLINKBRIEF_HISTORY_DIR"
 
 
 class HistoryStore:
@@ -398,7 +399,8 @@ class HistoryStore:
 
     def __init__(self, history_dir: str | Path | None = None) -> None:
         self._lock = Lock()
-        raw = Path(history_dir) if history_dir else _HISTORY_DIR
+        configured = os.environ.get(_HISTORY_DIR_ENV)
+        raw = Path(history_dir) if history_dir else Path(configured) if configured else _HISTORY_DIR
         if isinstance(raw, str):
             raw = Path(raw)
         self._dir: Path = raw

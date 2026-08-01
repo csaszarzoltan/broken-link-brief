@@ -28,3 +28,7 @@ The project database is independent of legacy JSONL history, so upgrading from 1
 ### Project lifecycle in 1.1.1
 
 Saved projects can be edited without changing their IDs. Archived projects are available through a separate view and can be restored. All update paths retain the same validation and security boundary as project creation.
+
+### One-action project scans in 1.1.2
+
+Active projects can start scanning immediately. Project API responses also include a compact latest-state summary derived from retained history. Use `BROKENLINKBRIEF_HISTORY_DIR` to place JSONL history on persistent storage.
