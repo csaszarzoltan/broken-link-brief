@@ -278,6 +278,20 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .badge { display:inline-block; border-radius:999px; padding:2px 8px; font-weight:700; }
   .badge.bad { background:#5d2030; color:#ffd7df; } .badge.good { background:#164a3c; color:#d4ffef; }
   .muted { color:#8892b0; }
+  .recent-list { display:grid; gap:8px; margin-top:12px; }
+  .recent-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid #294066; }
+  .recent-meta { min-width:0; }
+  .recent-url { overflow-wrap:anywhere; font-weight:650; }
+  .secondary { background:#0f3460; color:#fff; border:1px solid #52658a; border-radius:6px; padding:8px 12px; cursor:pointer; white-space:nowrap; }
+  .secondary:hover, .secondary:focus-visible { background:#1a4b7d; }
+  .recent-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  dialog { width:min(760px, calc(100% - 32px)); max-height:85vh; overflow:auto; color:#e0e0e0; background:#16213e; border:1px solid #52658a; border-radius:10px; padding:20px; }
+  dialog::backdrop { background:rgba(0,0,0,.72); }
+  .dialog-head { display:flex; justify-content:space-between; align-items:start; gap:16px; margin-bottom:14px; }
+  .icon-button { background:transparent; color:#fff; border:1px solid #52658a; border-radius:6px; padding:6px 10px; cursor:pointer; }
+  .timeline { display:grid; gap:10px; }
+  .timeline-item { border-left:4px solid #0f3460; padding:10px 12px; background:#0e1730; }
+  .change-good { color:#81e6c3; } .change-bad { color:#ff9aac; }
 </style>
 </head>
 <body>
@@ -292,6 +306,13 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   </form>
   <div id="scanStatus" class="status" role="status" aria-live="polite"></div>
   <div id="scanResults" class="results" tabindex="-1"></div>
+</section>
+<section class="scan-panel" aria-labelledby="recentHeading">
+  <h2 id="recentHeading">Recent pages</h2>
+  <p class="muted">Quickly repeat a scan without re-entering the URL.</p>
+  <div id="recentTargets" class="recent-list" aria-live="polite">
+    <p class="muted">Loading recent pages…</p>
+  </div>
 </section>
 <div class="filters" aria-label="Dashboard date range">
   <button onclick="setDays(7)" class="active" id="d7">7 days</button>
@@ -331,11 +352,22 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <canvas id="domainChart"></canvas>
   </div>
 </div>
+<dialog id="historyDialog" aria-labelledby="historyTitle">
+  <div class="dialog-head">
+    <div><h2 id="historyTitle">Scan history</h2><p id="historyTarget" class="muted"></p></div>
+    <div class="recent-actions">
+      <button type="button" id="exportHistory" class="secondary">Export history JSON</button>
+      <button type="button" id="closeHistory" class="icon-button" aria-label="Close history">Close</button>
+    </div>
+  </div>
+  <div id="historyContent" aria-live="polite"><p class="muted">Select a page to view its history.</p></div>
+</dialog>
 <script>
 let currentDays = 7;
 let trendChartInstance = null;
 let severityChartInstance = null;
 let domainChartInstance = null;
+let activeHistory = {url: '', items: []};
 
 function getToken() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -351,7 +383,104 @@ async function setDays(days) {
   );
   const btn = document.getElementById(`d${days}`);
   if (btn) btn.classList.add('active');
-  await document.getElementById('scanForm').addEventListener('submit', async (event) => {
+  await loadAll();
+}
+
+async function loadTargetHistory(url) {
+  const dialog = document.getElementById('historyDialog');
+  const content = document.getElementById('historyContent');
+  document.getElementById('historyTarget').textContent = url;
+  content.innerHTML = '<p class="muted">Loading scan history…</p>';
+  if (!dialog.open) dialog.showModal();
+  const token = new URLSearchParams(window.location.search).get('token');
+  const query = new URLSearchParams({url, limit: '20'});
+  if (token) query.set('token', token);
+  try {
+    const response = await fetch(`/api/dashboard/target-history?${query}`);
+    const items = await response.json();
+    if (!response.ok) throw new Error(items.detail || 'History could not be loaded');
+    if (!items.length) {
+      content.innerHTML = '<p class="muted">No scan history is available for this page.</p>';
+      return;
+    }
+    activeHistory = {url, items};
+    content.innerHTML = `<div class="timeline">${items.map(item => {
+      const when = item.timestamp ? new Date(item.timestamp).toLocaleString() : 'Unknown time';
+      return `<article class="timeline-item"><strong>${escapeHtml(when)}</strong>`
+        + `<p>${item.total_links} links checked, ${item.broken_count} need attention</p>`
+        + `<p><span class="change-bad">Newly broken: ${item.newly_broken_count}</span> · `
+        + `<span class="change-good">Fixed: ${item.fixed_count}</span></p>`
+        + `<details><summary>Change details</summary>`
+        + `<h3>Newly broken links</h3>${renderChangeList(item.newly_broken, 'No newly broken links.')}`
+        + `<h3>Fixed links</h3>${renderChangeList(item.fixed, 'No fixed links.')}</details></article>`;
+    }).join('')}</div>`;
+  } catch (error) {
+    content.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function renderChangeList(items, emptyMessage) {
+  if (!items || !items.length) return `<p class="muted">${escapeHtml(emptyMessage)}</p>`;
+  return `<ul>${items.map(item => `<li><span class="recent-url">${escapeHtml(item.url)}</span> `
+    + `<span class="muted">Status: ${escapeHtml(item.status ?? 'No response')}</span></li>`).join('')}</ul>`;
+}
+
+function exportTargetHistory() {
+  if (!activeHistory.items.length) return;
+  const payload = JSON.stringify(activeHistory, null, 2);
+  const blob = new Blob([payload], {type: 'application/json'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'brokenlinkbrief-history.json';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+document.getElementById('exportHistory').addEventListener('click', exportTargetHistory);
+document.getElementById('closeHistory').addEventListener('click', () => {
+  document.getElementById('historyDialog').close();
+});
+document.getElementById('historyDialog').addEventListener('click', (event) => {
+  if (event.target === event.currentTarget) event.currentTarget.close();
+});
+
+async function loadRecentTargets() {
+  const container = document.getElementById('recentTargets');
+  const token = new URLSearchParams(window.location.search).get('token');
+  const query = new URLSearchParams({limit: '8'});
+  if (token) query.set('token', token);
+  try {
+    const response = await fetch(`/api/dashboard/recent-targets?${query}`);
+    if (!response.ok) throw new Error('Recent pages could not be loaded');
+    const items = await response.json();
+    if (!items.length) {
+      container.innerHTML = '<p class="muted">Your scanned pages will appear here for quick access.</p>';
+      return;
+    }
+    container.innerHTML = items.map((item, index) => {
+      const summary = `${item.total_links} links, ${item.broken_count} need attention`;
+      return `<div class="recent-item"><div class="recent-meta"><div class="recent-url">${escapeHtml(item.url)}</div>`
+        + `<div class="muted">${escapeHtml(summary)}</div></div>`
+        + `<div class="recent-actions"><button type="button" class="secondary" data-history-index="${index}">View history</button>`
+        + `<button type="button" class="secondary" data-recent-index="${index}">Scan again</button></div></div>`;
+    }).join('');
+    container.querySelectorAll('[data-history-index]').forEach((button) => {
+      button.addEventListener('click', () => {
+        loadTargetHistory(items[Number(button.dataset.historyIndex)].url);
+      });
+    });
+    container.querySelectorAll('[data-recent-index]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.getElementById('scanUrl').value = items[Number(button.dataset.recentIndex)].url;
+        document.getElementById('scanForm').requestSubmit();
+      });
+    });
+  } catch (error) {
+    container.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+document.getElementById('scanForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const input = document.getElementById('scanUrl');
   const button = document.getElementById('scanButton');
@@ -368,14 +497,11 @@ async function setDays(days) {
     status.textContent = `${payload.length} links checked. ${broken.length} need attention.`;
     const rows = payload.map(item => { const failed=item.status===null||item.status>=400; const value=item.status===null?'No response':String(item.status); return `<tr><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed?'bad':'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason||'')}</td></tr>`; }).join('');
     document.getElementById('scanResults').innerHTML = payload.length ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>No HTTP or HTTPS links were found on this page.</p>';
-    document.getElementById('scanResults').focus(); await loadAll();
+    document.getElementById('scanResults').focus(); await Promise.all([loadAll(), loadRecentTargets()]);
   } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
   finally { button.disabled = false; }
 });
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-
-loadAll();
-}
 
 async function loadAll() {
   const daysParam = currentDays > 0 ? `days=${currentDays}` : '';
@@ -503,6 +629,7 @@ async function loadAll() {
 }
 
 loadAll();
+loadRecentTargets();
 </script>
 </body>
 </html>"""
@@ -675,6 +802,30 @@ class _Handler(BaseHTTPRequestHandler):
                     days = 7
                 result = store.get_severity_breakdown(days=days)
                 _write_json(self, 200, result)
+                return
+
+            if subpath == "target-history":
+                target_url = params.get("url")
+                if not target_url:
+                    _write_json(self, 400, {
+                        "code": "missing_url",
+                        "detail": "missing url query parameter",
+                    })
+                    return
+                try:
+                    limit = min(50, max(1, int(params.get("limit", "20"))))
+                except (ValueError, TypeError):
+                    limit = 20
+                result = store.get_target_timeline(target_url, limit=limit)
+                _write_json(self, 200, result)
+                return
+
+            if subpath == "recent-targets":
+                try:
+                    limit = min(50, max(1, int(params.get("limit", "10"))))
+                except (ValueError, TypeError):
+                    limit = 10
+                _write_json(self, 200, store.get_recent_targets(limit=limit))
                 return
 
             if subpath == "domains":

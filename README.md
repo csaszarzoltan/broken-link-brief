@@ -582,3 +582,39 @@ Safety and behavior notes:
 python -m pytest -q
 ruff check src tests
 ```
+
+### Recent pages and one-click rescanning
+
+The dashboard lists up to eight recently scanned pages below the scan form. Select **Scan again** to populate and submit the scan form without retyping the URL. The list is deduplicated by target URL, ordered by the latest scan, and refreshed after each successful scan.
+
+The supporting authenticated endpoint is:
+
+```text
+GET /api/dashboard/recent-targets?limit=10
+```
+
+`limit` is constrained to 1 through 50. Each item includes the target URL, latest scan timestamp, number of links checked, and number needing attention.
+
+### Per-page scan history
+
+Each item in **Recent pages** now includes **View history**. The history dialog displays scans newest first and summarizes:
+
+- Links checked
+- Links needing attention
+- Newly broken links since the preceding scan
+- Fixed links since the preceding scan
+
+The supporting authenticated endpoint is:
+
+```text
+GET /api/dashboard/target-history?url=https%3A%2F%2Fexample.com&limit=20
+```
+
+The `url` parameter is required. `limit` is constrained to 1 through 50. The first retained scan uses an empty baseline, so all broken results in that scan are reported as newly broken.
+
+
+### Actionable history details and export
+
+Expand **Change details** on any history entry to see the exact URLs that became broken or were fixed, including their current status. Change lists are sorted by URL for deterministic API responses and stable review.
+
+Select **Export history JSON** in the history dialog to download the currently displayed page history. The export contains the target URL, timeline summaries, and the newly broken/fixed link details already loaded in the browser. No additional server-side data is requested.

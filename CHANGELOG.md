@@ -104,3 +104,40 @@
 
 #### Tests
 - Added acceptance coverage for the dashboard workflow, accessibility semantics, target validation, date filtering, and version consistency.
+
+### v1.0.2 (2026-08-01)
+
+#### Repeat-user workflow
+- Added a recent-pages panel to the dashboard so frequently scanned targets can be scanned again with one action.
+- Added `GET /api/dashboard/recent-targets` with bounded result limits and existing dashboard authentication protection.
+- Added `HistoryStore.get_recent_targets()` to return the latest unique targets with compact link and failure summaries.
+- Recent targets refresh automatically after a successful scan and include accessible loading, empty, error, and action states.
+
+#### Tests
+- Added TDD coverage for unique target ordering, aggregate summaries, API response behavior, bounded input, and dashboard rescan affordances.
+
+### v1.0.3 (2026-08-01)
+
+#### Change-focused scan history
+- Added a dashboard history dialog for every recent target.
+- Added newest-first scan timeline summaries with total links, links needing attention, newly broken links, and fixed links.
+- Added `GET /api/dashboard/target-history` with required URL validation, bounded history limits, and existing dashboard authentication.
+- Added `HistoryStore.get_target_timeline()` to derive per-scan changes from retained history.
+- Added accessible dialog semantics, loading/empty/error states, explicit close behavior, and a non-color textual representation of changes.
+
+#### Tests
+- Added TDD acceptance coverage for timeline derivation, first-scan baseline behavior, API validation, API responses, and dashboard history interactions.
+
+
+### v1.0.4 (2026-08-01)
+
+#### Actionable history details
+- Added deterministic URL-level detail lists for newly broken and fixed links in every scan timeline record.
+- Added expandable Change details sections to the dashboard history dialog.
+- Added client-side history JSON export for handoff, issue creation, and offline review.
+- Added empty states for scans with no new failures or fixes.
+
+#### Quality
+- Repaired a malformed embedded dashboard JavaScript sequence discovered by syntax validation.
+- Added a Node.js-backed regression test that extracts the embedded script and runs `node --check` when Node.js is available.
+- Added TDD tests for change-detail payloads, deterministic ordering, expandable UI details, and export affordance.

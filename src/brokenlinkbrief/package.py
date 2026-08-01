@@ -502,6 +502,73 @@ class HistoryStore:
         records.sort(key=lambda x: x.get("timestamp", ""))
         return records
 
+    def get_target_timeline(self, url: str, limit: int = 20) -> list[dict]:
+        """Return newest-first scan summaries and changes for one target."""
+        if not url or not url.strip():
+            raise ValueError("url must be non-empty")
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        limit = min(limit, 50)
+        records = list(reversed(self.get_history(url, limit=limit)))
+        timeline: list[dict] = []
+        previous: list[dict] = []
+        for record in records:
+            current = record.get("results", [])
+            diff = compute_diff(previous, current)
+            broken_count = sum(
+                1
+                for item in current
+                if (item.get("status") is not None and item.get("status") >= 400)
+                or (item.get("status") is None and item.get("reason") is not None)
+            )
+            newly_broken = sorted(
+                diff["added_broken"], key=lambda item: item.get("url", "")
+            )
+            fixed = sorted(diff["fixed"], key=lambda item: item.get("url", ""))
+            timeline.append({
+                "timestamp": record.get("timestamp"),
+                "total_links": len(current),
+                "broken_count": broken_count,
+                "newly_broken_count": len(newly_broken),
+                "fixed_count": len(fixed),
+                "newly_broken": newly_broken,
+                "fixed": fixed,
+            })
+            previous = current
+        return list(reversed(timeline))
+
+    def get_recent_targets(self, limit: int = 10) -> list[dict]:
+        """Return the latest scan summary for each unique target URL.
+
+        Results are ordered by most recent scan and intentionally contain only
+        aggregate data needed by the dashboard. This avoids returning every
+        historical link result for a repeat-scan shortcut.
+        """
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+        limit = min(limit, 50)
+        latest: dict[str, dict] = {}
+        for record in reversed(self._read_all_records()):
+            url = record.get("url")
+            if not url or url in latest:
+                continue
+            results = record.get("results", [])
+            broken_count = sum(
+                1
+                for item in results
+                if (item.get("status") is not None and item.get("status") >= 400)
+                or (item.get("status") is None and item.get("reason") is not None)
+            )
+            latest[url] = {
+                "url": url,
+                "last_scan_timestamp": record.get("timestamp"),
+                "total_links": len(results),
+                "broken_count": broken_count,
+            }
+            if len(latest) >= limit:
+                break
+        return list(latest.values())
+
     def get_dashboard_summary(
         self,
         since: str | None = None,

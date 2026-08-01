@@ -82,3 +82,63 @@ Coverage added across HTTP integration, HTML accessibility contract, security va
 ## 6. Packaging
 
 The handoff ZIP includes source, tests, configuration, README, changelog, and this report. Runtime history, caches, bytecode, and other temporary artifacts are excluded.
+
+## 7. Continued increment: 1.0.2 recent-page workflow
+
+The second TDD increment addresses a high-frequency inferred behavior: users repeatedly scan the same pages. The dashboard now derives a compact recent-target list from history and offers a one-action **Scan again** path. This removes URL re-entry while preserving the existing scan validation, feedback, history, and analytics flow.
+
+### Requirements added
+
+- **UR-RECENT-01, Must:** A repeat user can see recently scanned unique targets.
+- **UR-RECENT-02, Must:** A repeat user can start a new scan for a recent target with one action.
+- **FR-RECENT-01, Must:** Recent items use the latest scan per target and expose compact aggregate counts.
+- **SEC-RECENT-01, Must:** The recent-target endpoint uses existing dashboard authentication and bounds its limit.
+- **A11Y-RECENT-01, Must:** Loading, empty, error, and refreshed recent-target states are announced.
+
+### Implementation
+
+- Added `HistoryStore.get_recent_targets()`.
+- Added `/api/dashboard/recent-targets`.
+- Added an accessible recent-pages panel with event-bound buttons, avoiding inline untrusted handlers.
+- Added four tests first, confirmed all failed, then implemented until all passed.
+
+## 8. Continued increment: 1.0.3 change-focused scan history
+
+This increment connects recent targets to an actionable history workflow. Users can now open a page's timeline and immediately see whether each scan introduced new failures or confirmed repairs. This prioritizes change detection over cumulative totals and reduces manual snapshot comparison.
+
+### Requirements added
+
+- **UR-HISTORY-01, Must:** A user can open the scan history of a recent page without constructing an API request.
+- **UR-HISTORY-02, Must:** Each scan summary exposes newly broken and fixed counts relative to its preceding scan.
+- **FR-HISTORY-01, Must:** Timeline records are returned newest first and derived deterministically from stored snapshots.
+- **API-HISTORY-01, Must:** The endpoint validates a required URL, bounds `limit`, and uses dashboard authentication.
+- **A11Y-HISTORY-01, Must:** History is presented in a labeled native dialog with keyboard-compatible close behavior and textual change labels.
+- **QA-HISTORY-01, Must:** Timeline, API, validation, and UI contracts have automated tests written before implementation.
+
+### Implementation
+
+- Added `HistoryStore.get_target_timeline()` using the existing diff domain logic.
+- Added `/api/dashboard/target-history`.
+- Added **View history** actions and a native `<dialog>` timeline to the dashboard.
+- Escaped all dynamic text before HTML insertion and bound interactions through event listeners.
+
+
+## 9. Continued increment: 1.0.4 actionable change details
+
+This increment moves the history view from counts to action. Users can expand a scan entry to inspect exactly which URLs became broken or were fixed, then export the displayed history as JSON for handoff or offline analysis.
+
+### Requirements added
+
+- **UR-DETAIL-01, Must:** A user can inspect URL-level newly broken and fixed items for each timeline entry.
+- **FR-DETAIL-01, Must:** Timeline detail arrays are deterministically sorted by URL.
+- **UX-DETAIL-01, Must:** Detailed lists are collapsed by default to preserve scan-level readability.
+- **UX-DETAIL-02, Must:** Empty change categories explain that no corresponding changes occurred.
+- **DI-EXPORT-01, Should:** The currently loaded history can be exported as a structured JSON file without another API request.
+- **QA-JS-01, Must:** The embedded dashboard JavaScript passes syntax validation in environments where Node.js is available.
+
+### Implementation
+
+- Extended `HistoryStore.get_target_timeline()` with `newly_broken` and `fixed` arrays.
+- Added native `<details>` sections for progressive disclosure.
+- Added a browser-side Blob download for the active history payload.
+- Added JavaScript syntax regression coverage after detecting and repairing a malformed function boundary from the preceding incremental edit.
