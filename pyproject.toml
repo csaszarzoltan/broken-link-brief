@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brokenlinkbrief"
-version = "1.0.5"
+version = "1.0.6"
 description = "Compact broken link scanner with JSON/CSV/Markdown/JSONL export"
 readme = "README.md"
 license = {text = "MIT"}

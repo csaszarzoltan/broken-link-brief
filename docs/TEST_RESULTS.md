@@ -1,11 +1,11 @@
 # Validation Results
 
-Validated on 2026-08-01 in the handoff environment. The results include the 1.0.2 recent-page, 1.0.3 change-history, 1.0.4 actionable-detail, and 1.0.5 result-review increments.
+Validated on 2026-08-01 in the handoff environment. The results include the 1.0.2 recent-page, 1.0.3 change-history, 1.0.4 actionable-detail, 1.0.5 result-review, and 1.0.6 browser-batch increments.
 
 ## Automated tests
 
 ```text
-321 passed, 1 xpassed in 25.40s
+326 passed, 1 xpassed in 24.58s
 ```
 
 Command:

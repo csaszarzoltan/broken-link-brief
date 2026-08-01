@@ -299,19 +299,48 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .filter-group { display:flex; gap:6px; flex-wrap:wrap; }
   .filter-group button[aria-pressed="true"] { background:#e94560; border-color:#e94560; }
   .result-count { flex-basis:100%; margin:0; }
+  .mode-tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .mode-tabs button[aria-selected="true"] { background:#e94560; border-color:#e94560; }
+  .scan-mode-panel[hidden] { display:none; }
+  .batch-grid { display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:12px; align-items:end; }
+  .batch-grid label { display:grid; gap:4px; }
+  textarea { min-height:130px; resize:vertical; padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; font:inherit; }
+  input[type="number"] { padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
+  @media (max-width:640px) { .batch-grid { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <a class="skip-link" href="#scanResults">Skip to results</a>
 <h1>BrokenLinkBrief Dashboard</h1>
 <section class="scan-panel" aria-labelledby="scanHeading">
-  <h2 id="scanHeading">Scan a page</h2>
+  <h2 id="scanHeading">Scan pages</h2>
+  <div class="mode-tabs" role="tablist" aria-label="Scan mode">
+    <button type="button" class="secondary" role="tab" aria-selected="true" data-scan-mode="single" aria-controls="singleScanPanel">Single page</button>
+    <button type="button" class="secondary" role="tab" aria-selected="false" data-scan-mode="batch" aria-controls="batchScanPanel">Multiple pages</button>
+  </div>
+  <div id="singleScanPanel" class="scan-mode-panel" role="tabpanel">
   <form id="scanForm">
     <label for="scanUrl">Page URL</label>
     <div class="scan-row"><input id="scanUrl" name="url" type="url" inputmode="url" required placeholder="https://example.com" autocomplete="url" aria-describedby="scanHelp scanStatus"><button class="primary" id="scanButton" type="submit">Run scan</button></div>
     <p id="scanHelp" class="muted">Enter a public HTTP or HTTPS page. Private network targets are blocked.</p>
   </form>
   <div id="scanStatus" class="status" role="status" aria-live="polite"></div>
+  </div>
+  <div id="batchScanPanel" class="scan-mode-panel" role="tabpanel" hidden>
+    <form id="batchScanForm">
+      <div class="batch-grid">
+        <label for="batchUrls">Page URLs
+          <textarea id="batchUrls" required placeholder="https://example.com&#10;https://example.org" aria-describedby="batchHelp batchStatus"></textarea>
+        </label>
+        <label for="batchConcurrency">Parallel scans
+          <input id="batchConcurrency" type="number" min="1" max="20" value="10">
+        </label>
+      </div>
+      <p id="batchHelp" class="muted">Enter one URL per line, up to 50 unique public URLs.</p>
+      <button class="primary" id="batchScanButton" type="submit">Run batch scan</button>
+    </form>
+    <div id="batchStatus" class="status" role="status" aria-live="polite"></div>
+  </div>
   <div id="resultTools" class="result-tools" hidden>
     <div class="filter-group" role="group" aria-label="Filter scan results">
       <button type="button" class="secondary" data-result-filter="all" aria-pressed="true">All results</button>
@@ -502,6 +531,70 @@ async function loadRecentTargets() {
   }
 }
 
+document.querySelectorAll('[data-scan-mode]').forEach(button => {
+  button.addEventListener('click', () => {
+    const mode = button.dataset.scanMode;
+    document.querySelectorAll('[data-scan-mode]').forEach(item => item.setAttribute('aria-selected', String(item === button)));
+    document.getElementById('singleScanPanel').hidden = mode !== 'single';
+    document.getElementById('batchScanPanel').hidden = mode !== 'batch';
+    document.getElementById(mode === 'single' ? 'scanUrl' : 'batchUrls').focus();
+  });
+});
+
+function parseBatchUrls(value) {
+  const urls = value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
+  if (!urls.length) throw new Error('Enter at least one URL.');
+  if (urls.length > 50) throw new Error('Enter no more than 50 URLs.');
+  if (new Set(urls).size !== urls.length) throw new Error('Remove duplicate URLs before scanning.');
+  return urls;
+}
+
+function flattenBatchResults(results) {
+  return Object.values(results).flat();
+}
+
+function showScanResults(results) {
+  latestScanResults = results;
+  activeResultFilter = 'all';
+  document.getElementById('resultSearch').value = '';
+  document.querySelectorAll('[data-result-filter]').forEach(button => {
+    button.setAttribute('aria-pressed', String(button.dataset.resultFilter === 'all'));
+  });
+  document.getElementById('resultTools').hidden = results.length === 0;
+  applyResultView();
+}
+
+async function runBatchScan(event) {
+  event.preventDefault();
+  const status = document.getElementById('batchStatus');
+  const button = document.getElementById('batchScanButton');
+  let urls;
+  try { urls = parseBatchUrls(document.getElementById('batchUrls').value); }
+  catch (error) { status.textContent = error.message; return; }
+  const concurrency = Math.min(20, Math.max(1, Number(document.getElementById('batchConcurrency').value) || 10));
+  button.disabled = true;
+  status.textContent = `Scanning ${urls.length} pages. This may take a moment…`;
+  const token = new URLSearchParams(window.location.search).get('token');
+  const query = new URLSearchParams();
+  if (token) query.set('token', token);
+  try {
+    const response = await fetch(`/scan-batch?${query}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({urls, concurrency}),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Batch scan failed');
+    const results = flattenBatchResults(payload.results);
+    showScanResults(results);
+    status.textContent = `${payload.summary.total_urls} pages scanned. ${payload.summary.broken_count} links need attention.`;
+    document.getElementById('scanResults').focus();
+    await Promise.all([loadAll(), loadRecentTargets()]);
+  } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
+  finally { button.disabled = false; }
+}
+
+document.getElementById('batchScanForm').addEventListener('submit', runBatchScan);
+
 document.getElementById('scanForm').addEventListener('submit', async (event) => {
   event.preventDefault();
   const input = document.getElementById('scanUrl');
@@ -515,16 +608,9 @@ document.getElementById('scanForm').addEventListener('submit', async (event) => 
   try {
     const response = await fetch(`/scan?${query}`); const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || 'Scan failed');
-    const broken = payload.filter(item => item.status === null || item.status >= 400);
+    const broken = payload.filter(needsAttention);
     status.textContent = `${payload.length} links checked. ${broken.length} need attention.`;
-    latestScanResults = payload;
-    activeResultFilter = 'all';
-    document.getElementById('resultSearch').value = '';
-    document.querySelectorAll('[data-result-filter]').forEach(button => {
-      button.setAttribute('aria-pressed', String(button.dataset.resultFilter === 'all'));
-    });
-    document.getElementById('resultTools').hidden = payload.length === 0;
-    applyResultView();
+    showScanResults(payload);
     document.getElementById('scanResults').focus(); await Promise.all([loadAll(), loadRecentTargets()]);
   } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
   finally { button.disabled = false; }

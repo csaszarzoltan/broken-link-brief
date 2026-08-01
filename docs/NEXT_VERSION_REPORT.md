@@ -163,3 +163,25 @@ This increment improves the most immediate post-scan workflow. Users can now red
 - Added in-memory view state for the latest and currently visible results.
 - Added client-side filtering and search without repeated API requests.
 - Added a focused CSV download using the visible rows and the existing result schema.
+
+## 11. Continued increment: 1.0.6 browser batch scanning
+
+This increment removes API-only friction from an existing high-value capability. Users can now submit multiple source pages from the dashboard, control concurrency, and review all resulting links through the same post-scan workflow as a single page.
+
+### Requirements added
+
+- **UR-BATCH-01, Must:** A browser user can switch between single-page and multiple-page scanning.
+- **UR-BATCH-02, Must:** A user can enter up to 50 source URLs, one per line, and set concurrency from 1 through 20.
+- **UX-BATCH-01, Must:** Empty, duplicate, and over-limit input is rejected before network submission with clear feedback.
+- **UX-BATCH-02, Must:** Batch progress and completion summaries are announced in a live status region.
+- **FR-BATCH-01, Must:** The browser uses the existing authenticated `/scan-batch` contract and flattens per-source results for review.
+- **FR-BATCH-02, Must:** Batch results reuse filtering, search, visible counts, and focused CSV export.
+- **A11Y-BATCH-01, Must:** Scan modes use tab semantics, expose selection state, and move focus to the active input.
+- **QA-BATCH-01, Must:** Scan modes, inputs, validation, integration, and feedback have automated acceptance coverage.
+
+### Implementation
+
+- Added two scan-mode panels rather than duplicating dashboard pages.
+- Added line-based URL parsing and early duplicate/count validation.
+- Added a shared `showScanResults()` path used by single and batch responses.
+- Retained server-side validation as the source of truth and treated browser validation as friction reduction.

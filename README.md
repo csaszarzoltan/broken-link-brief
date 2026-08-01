@@ -628,3 +628,14 @@ After a browser scan, use the result toolbar to focus on:
 - **Healthy**: successful and redirect responses below HTTP 400
 
 The search field filters the displayed rows by URL, reason, or status. **Export visible CSV** downloads only the rows currently matching the selected category and search query. The browser-generated CSV neutralizes leading spreadsheet formula characters before download.
+
+### Browser batch scanning
+
+Choose **Multiple pages** in the dashboard to scan several source pages without constructing a JSON request manually.
+
+1. Enter one public HTTP or HTTPS URL per line.
+2. Optionally choose 1 through 20 parallel scans.
+3. Select **Run batch scan**.
+4. Review the combined link results with the same filters, search, count, and visible-CSV export used by single scans.
+
+The browser validates empty input, more than 50 entries, and exact duplicate URLs before submitting to the existing `/scan-batch` endpoint. Server-side SSRF and request validation remain authoritative.

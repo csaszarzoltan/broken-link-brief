@@ -155,3 +155,17 @@
 #### Tests
 - Added TDD acceptance coverage for result filters, search, visible-result export, and live-count accessibility.
 - Preserved the embedded JavaScript syntax regression check.
+
+### v1.0.6 (2026-08-01)
+
+#### Browser batch scanning
+- Added Single page and Multiple pages scan modes to the dashboard.
+- Added a multiline batch URL form supporting up to 50 unique URLs.
+- Added configurable browser-side concurrency input constrained to 1 through 20.
+- Added duplicate, empty, and over-limit validation before a request is sent.
+- Integrated batch responses with the existing result filters, search, visible-count, and CSV export workflow.
+- Added accessible scan-mode tabs and live batch progress/outcome feedback.
+
+#### Tests
+- Added TDD acceptance coverage for scan modes, bulk input, concurrency controls, duplicate validation, endpoint integration, shared result review, and live status semantics.
+- Re-ran embedded JavaScript syntax validation and the complete regression suite.
