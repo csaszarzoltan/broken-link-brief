@@ -329,7 +329,11 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <textarea id="projectTargets" required placeholder="https://example.com&#10;https://example.org" aria-describedby="projectHelp projectStatus"></textarea>
     </label>
     <p id="projectHelp" class="muted">Enter one public URL per line, up to 50 targets.</p>
-    <button type="submit" id="saveProject" class="primary">Save project</button>
+    <div class="recent-actions">
+      <button type="submit" id="saveProject" class="primary">Save project</button>
+      <button type="button" id="cancelProjectEdit" class="secondary" hidden>Cancel edit</button>
+      <button type="button" id="toggleArchivedProjects" class="secondary">Show archived</button>
+    </div>
   </form>
   <div id="projectStatus" class="status" role="status" aria-live="polite"></div>
   <div id="projectList" class="project-list" aria-live="polite"><p class="muted">Loading projects…</p></div>
@@ -444,6 +448,8 @@ let activeHistory = {url: '', items: []};
 let latestScanResults = [];
 let visibleScanResults = [];
 let activeResultFilter = 'all';
+let editingProjectId = null;
+let showingArchivedProjects = false;
 
 function getToken() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -540,7 +546,9 @@ function loadProjectTargets(project) {
 async function loadProjects() {
   const container = document.getElementById('projectList');
   try {
-    const response = await fetch(`/api/projects${apiTokenQuery()}`);
+    const archived = showingArchivedProjects ? '&archived=1' : '';
+    const suffix = apiTokenQuery();
+    const response = await fetch(`/api/projects${suffix}${suffix ? archived : archived.replace('&', '?')}`);
     const projects = await response.json();
     if (!response.ok) throw new Error(projects.detail || 'Projects could not be loaded');
     if (!projects.length) {
@@ -551,7 +559,11 @@ async function loadProjects() {
       `<article class="project-item"><div><strong>${escapeHtml(project.name)}</strong>`
       + `<span class="muted">${project.targets.length} target${project.targets.length === 1 ? '' : 's'}</span></div>`
       + `<div class="recent-actions"><button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
-      + `<button type="button" class="icon-button" data-project-archive="${index}">Archive</button></div></article>`
+      + (project.archived
+        ? `<button type="button" class="secondary" data-project-restore="${index}">Restore</button>`
+        : `<button type="button" class="secondary" data-project-edit="${index}">Edit</button>`
+          + `<button type="button" class="icon-button" data-project-archive="${index}">Archive</button>`)
+      + `</div></article>`
     ).join('');
     container.querySelectorAll('[data-project-index]').forEach(button => {
       button.addEventListener('click', () => loadProjectTargets(projects[Number(button.dataset.projectIndex)]));
@@ -559,10 +571,50 @@ async function loadProjects() {
     container.querySelectorAll('[data-project-archive]').forEach(button => {
       button.addEventListener('click', () => archiveProject(projects[Number(button.dataset.projectArchive)]));
     });
+    container.querySelectorAll('[data-project-edit]').forEach(button => {
+      button.addEventListener('click', () => editProject(projects[Number(button.dataset.projectEdit)]));
+    });
+    container.querySelectorAll('[data-project-restore]').forEach(button => {
+      button.addEventListener('click', () => restoreProject(projects[Number(button.dataset.projectRestore)]));
+    });
   } catch (error) {
     container.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
   }
 }
+
+function editProject(project) {
+  editingProjectId = project.id;
+  document.getElementById('projectName').value = project.name;
+  document.getElementById('projectTargets').value = project.targets.join('\n');
+  document.getElementById('saveProject').textContent = 'Update project';
+  document.getElementById('cancelProjectEdit').hidden = false;
+  document.getElementById('projectName').focus();
+}
+
+function resetProjectForm() {
+  editingProjectId = null;
+  document.getElementById('projectForm').reset();
+  document.getElementById('saveProject').textContent = 'Save project';
+  document.getElementById('cancelProjectEdit').hidden = true;
+}
+
+async function restoreProject(project) {
+  const status = document.getElementById('projectStatus');
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/restore${apiTokenQuery()}`, {method: 'POST'});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Project could not be restored');
+    status.textContent = `Restored ${project.name}.`;
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
+}
+
+document.getElementById('cancelProjectEdit').addEventListener('click', resetProjectForm);
+document.getElementById('toggleArchivedProjects').addEventListener('click', async () => {
+  showingArchivedProjects = !showingArchivedProjects;
+  document.getElementById('toggleArchivedProjects').textContent = showingArchivedProjects ? 'Show active' : 'Show archived';
+  await loadProjects();
+});
 
 async function archiveProject(project) {
   if (!window.confirm(`Archive ${project.name}? Scans and history are not deleted.`)) return;
@@ -586,14 +638,15 @@ document.getElementById('projectForm').addEventListener('submit', async (event) 
   button.disabled = true;
   status.textContent = 'Saving project…';
   try {
-    const response = await fetch(`/api/projects${apiTokenQuery()}`, {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
+    const url = editingProjectId ? `/api/projects/${encodeURIComponent(editingProjectId)}${apiTokenQuery()}` : `/api/projects${apiTokenQuery()}`;
+    const response = await fetch(url, {
+      method: editingProjectId ? 'PUT' : 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name: document.getElementById('projectName').value, targets}),
     });
     const project = await response.json();
     if (!response.ok) throw new Error(project.detail || 'Project could not be saved');
-    status.textContent = `Saved ${project.name} with ${project.targets.length} targets.`;
-    document.getElementById('projectForm').reset();
+    status.textContent = `${editingProjectId ? 'Updated' : 'Saved'} ${project.name} with ${project.targets.length} targets.`;
+    resetProjectForm();
     await loadProjects();
   } catch (error) { status.textContent = error.message; }
   finally { button.disabled = false; }
@@ -1057,7 +1110,11 @@ class _Handler(BaseHTTPRequestHandler):
             if expected_token is not None and not is_scan_authorized(provided_token):
                 _write_json(self, 401, {"detail": _AUTH_DETAIL})
                 return
-            projects = [asdict(item) for item in ProjectStore().list_active()]
+            store = ProjectStore()
+            projects = [
+                asdict(item)
+                for item in (store.list_archived() if params.get("archived") == "1" else store.list_active())
+            ]
             _write_json(self, 200, projects)
             return
 
@@ -1156,6 +1213,45 @@ class _Handler(BaseHTTPRequestHandler):
 
         _write_json(self, 404, {"detail": "not found"})
 
+    def do_PUT(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if not path.startswith("/api/projects/"):
+            _write_json(self, 404, {"detail": "not found"})
+            return
+        params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+        provided_token = params.get("token")
+        authorization = self.headers.get("Authorization") or ""
+        if provided_token is None and authorization.startswith("Bearer "):
+            provided_token = authorization.split(" ", 1)[1]
+        if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+            _write_json(self, 401, {"detail": _AUTH_DETAIL})
+            return
+        content_length = int(self.headers.get("Content-Length", 0))
+        try:
+            body = json.loads(self.rfile.read(content_length) if content_length else b"")
+        except (json.JSONDecodeError, ValueError):
+            _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
+            return
+        targets = body.get("targets")
+        if not isinstance(targets, list) or not all(isinstance(item, str) for item in targets):
+            _write_json(self, 400, {"code": "invalid_targets", "detail": "targets must be a list of strings"})
+            return
+        for target in targets:
+            error = validate_scan_url(target)
+            if error is not None:
+                _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
+                return
+        try:
+            project = ProjectStore().update(path.removeprefix("/api/projects/"), str(body.get("name", "")), targets)
+        except KeyError:
+            _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+            return
+        except ValueError as exc:
+            _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
+            return
+        _write_json(self, 200, asdict(project))
+
     def do_DELETE(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
@@ -1190,6 +1286,24 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path.startswith("/api/projects/") and path.endswith("/restore"):
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            project_id = path.removeprefix("/api/projects/").removesuffix("/restore")
+            try:
+                project = ProjectStore().restore(project_id)
+            except KeyError:
+                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                return
+            _write_json(self, 200, asdict(project))
+            return
 
         if path == "/api/projects":
             expected_token = get_configured_scan_token()

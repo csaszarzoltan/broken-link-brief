@@ -108,3 +108,22 @@ Upgrade is additive:
 - No schema migration is needed for existing JSONL history.
 - On first project API or dashboard use, the configured SQLite project schema is created automatically.
 - Set `BROKENLINKBRIEF_PROJECT_DB` to a persistent writable location before production deployment.
+
+## 7. Continued increment: 1.1.1 project lifecycle completion
+
+The initial saved-project increment removed repeated target entry, but users still needed a safe way to correct project names or target lists and reverse archival. Version 1.1.1 completes this daily lifecycle.
+
+### Requirements added
+
+- **UR-PROJ-04, Must:** A user can edit a project's name and ordered targets without changing its stable ID.
+- **UR-PROJ-05, Must:** A user can browse archived projects and restore one to active use.
+- **UX-PROJ-02, Must:** Edit mode is explicit, cancellable, and reuses the accessible project form.
+- **SEC-PROJ-02, Must:** Updated targets pass the same normalization, credential, count, and SSRF checks as creation.
+- **QA-PROJ-02, Must:** Store, API, and dashboard lifecycle behaviors have failing-first automated tests.
+
+### Implementation details
+
+- Extended `ProjectStore` with `update()`, `restore()`, and `list_archived()`.
+- Added authenticated PUT and restore routes.
+- Added browser Edit, Cancel edit, Show archived, Show active, and Restore actions.
+- Kept project IDs stable across edits and preserved scan history across archive/restore transitions.

@@ -24,3 +24,7 @@ The new modules are additive. Existing imports and endpoint response shapes are 
 `projects.py` adds a durable SQLite adapter for named recurring target groups. The main HTTP application now exposes authenticated list, create, and archive operations, and the dashboard can load saved targets directly into single or batch scan mode.
 
 The project database is independent of legacy JSONL history, so upgrading from 1.0.x is additive. Set `BROKENLINKBRIEF_PROJECT_DB` to a persistent writable path in production. Project archival is non-destructive and does not remove scan history.
+
+### Project lifecycle in 1.1.1
+
+Saved projects can be edited without changing their IDs. Archived projects are available through a separate view and can be restored. All update paths retain the same validation and security boundary as project creation.

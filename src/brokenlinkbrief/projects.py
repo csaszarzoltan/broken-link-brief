@@ -118,16 +118,58 @@ class ProjectStore:
             row["created_at"], row["updated_at"],
         )
 
-    def list_active(self) -> list[Project]:
+    def _list_by_archived(self, archived: bool) -> list[Project]:
         with self._connect() as db:
             ids = [
                 row["id"]
                 for row in db.execute(
-                    "SELECT id FROM projects WHERE archived=0 "
-                    "ORDER BY updated_at DESC, name"
+                    "SELECT id FROM projects WHERE archived=? "
+                    "ORDER BY updated_at DESC, name",
+                    (int(archived),),
                 ).fetchall()
             ]
         return [self.get(project_id) for project_id in ids]
+
+    def list_active(self) -> list[Project]:
+        return self._list_by_archived(False)
+
+    def list_archived(self) -> list[Project]:
+        return self._list_by_archived(True)
+
+    def update(self, project_id: str, name: str, targets: list[str]) -> Project:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("name is required")
+        normalized = tuple(dict.fromkeys(normalize_target(item) for item in targets))
+        if not normalized:
+            raise ValueError("at least one target is required")
+        if len(normalized) > 50:
+            raise ValueError("maximum 50 targets per project")
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            if db.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone() is None:
+                raise KeyError(project_id)
+            db.execute(
+                "UPDATE projects SET name=?, updated_at=? WHERE id=?",
+                (clean_name, now, project_id),
+            )
+            db.execute("DELETE FROM project_targets WHERE project_id=?", (project_id,))
+            db.executemany(
+                "INSERT INTO project_targets VALUES (?,?,?)",
+                [(project_id, index, url) for index, url in enumerate(normalized)],
+            )
+        return self.get(project_id)
+
+    def restore(self, project_id: str) -> Project:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE projects SET archived=0, updated_at=? WHERE id=?",
+                (now, project_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(project_id)
+        return self.get(project_id)
 
     def archive(self, project_id: str) -> Project:
         now = datetime.now(timezone.utc).isoformat()

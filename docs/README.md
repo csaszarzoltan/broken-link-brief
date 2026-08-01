@@ -190,3 +190,11 @@ Projects reduce repeat entry for commonly scanned pages.
 - `DELETE /api/projects/{id}` archives a project.
 
 The endpoints use dashboard authentication. Targets are normalized, deduplicated, rejected if they contain credentials, and checked by the scan SSRF policy before save.
+
+### Project update and restore
+
+- `PUT /api/projects/{id}` updates name and targets.
+- `GET /api/projects?archived=1` lists archived projects.
+- `POST /api/projects/{id}/restore` restores an archived project.
+
+Project updates preserve stable IDs and rerun target validation.

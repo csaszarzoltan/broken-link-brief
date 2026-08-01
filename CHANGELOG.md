@@ -203,3 +203,16 @@
 - Added TDD unit, API integration, validation, archive, dashboard contract, and JavaScript syntax tests.
 - Added the full product analysis and next-version requirements report to `docs/PRODUCT_ANALYSIS_AND_REQUIREMENTS.md`.
 - Added implementation, setup, migration, testing, and packaging documentation.
+
+### v1.1.1 (2026-08-01)
+
+#### Complete project lifecycle
+- Added project editing for names and ordered target lists.
+- Added archived-project browsing and non-destructive restoration.
+- Added authenticated `PUT /api/projects/{id}` and `POST /api/projects/{id}/restore` endpoints.
+- Added Edit, Cancel edit, Show archived, Show active, and Restore dashboard actions.
+- Project updates retain stable IDs and reapply normalization, deduplication, limits, credential rejection, and SSRF validation.
+
+#### Tests
+- Added TDD store, API integration, browser workflow, archive listing, and restore coverage.
+- Re-ran the complete regression suite and embedded JavaScript syntax validation.

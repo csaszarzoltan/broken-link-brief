@@ -691,3 +691,17 @@ Create request:
 ```
 
 Project APIs use the same optional token authentication as scan and dashboard APIs. Targets are SSRF-validated before persistence.
+
+### Edit and restore projects
+
+Active projects now include **Edit**, **Load targets**, and **Archive** actions. Editing reuses the project form and preserves the project's stable ID. Select **Show archived** to review archived projects and use **Restore** to return a project to the active list.
+
+Additional API operations:
+
+```text
+PUT  /api/projects/{project_id}
+POST /api/projects/{project_id}/restore
+GET  /api/projects?archived=1
+```
+
+Updates use the same target normalization, project limits, credential rejection, SSRF validation, and authentication rules as project creation.

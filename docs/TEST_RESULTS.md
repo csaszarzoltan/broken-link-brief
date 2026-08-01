@@ -1,23 +1,35 @@
-# BrokenLinkBrief 1.1.0 Validation Results
+# BrokenLinkBrief 1.1.1 Validation Results
 
 Validated on 2026-08-01 in the handoff environment.
 
-## Baseline
+## Baselines
 
-Before modification:
+Before the saved-project work:
 
 ```text
 331 passed, 1 xpassed in 24.77s
 ```
 
-## TDD evidence
+After version 1.1.0:
 
-The initial saved-project test module failed during collection because `brokenlinkbrief.projects` did not exist. After the first implementation, the focused project and JavaScript tests passed. Two additional failing tests were then added for project archival and its browser action; both passed after implementation.
+```text
+339 passed, 1 xpassed in 23.93s
+```
+
+## 1.1.1 TDD evidence
+
+Six failing-first tests were added for project update, archived listing, restore, PUT API behavior, restore API behavior, and dashboard lifecycle actions. The first execution reported six failures. Implementation then proceeded incrementally. During targeted regression, one restore-route placement defect remained and produced a 404; the route was moved to the POST handler and all focused tests passed.
+
+Focused result:
+
+```text
+15 passed in 1.11s
+```
 
 ## Final automated regression
 
 ```text
-339 passed, 1 xpassed in 23.93s
+345 passed, 1 xpassed in 24.73s
 ```
 
 Command:
@@ -30,11 +42,11 @@ No test failed. The XPASS is a pre-existing expected-failure test whose behavior
 
 ## Additional validation
 
-- Python source and tests successfully passed `python -m compileall -q src tests`.
-- Embedded dashboard JavaScript successfully passed `node --check`.
+- Python source and tests passed `python -m compileall -q src tests`.
+- Embedded dashboard JavaScript passed `node --check`.
 - ZIP integrity validation reported no compressed-data errors.
-- Runtime SQLite files, JSONL history, caches, bytecode, and temporary files were excluded.
+- Runtime databases, history, caches, bytecode, and temporary files were excluded.
 
 ## Tooling limitation
 
-Ruff is declared in the development dependencies, but its executable was unavailable in this handoff environment. Install development dependencies and run the documented `ruff check src tests` release gate before production release.
+Ruff is declared in the development dependencies, but its executable was unavailable in the handoff environment. Install development dependencies and run `ruff check src tests` before production release.
