@@ -180,3 +180,13 @@ http://127.0.0.1:8000/dashboard?token=secret
 - `/health` remains public regardless of token configuration.
 - Secrets must match exactly; no hashing or expiration is applied.
 - Logging only happens after a successful scan and only for valid `/scan` paths. `400`/`401`/`404` responses are not logged.
+
+## Saved Projects API
+
+Projects reduce repeat entry for commonly scanned pages.
+
+- `GET /api/projects` lists active projects.
+- `POST /api/projects` creates a project with 1 to 50 targets.
+- `DELETE /api/projects/{id}` archives a project.
+
+The endpoints use dashboard authentication. Targets are normalized, deduplicated, rejected if they contain credentials, and checked by the scan SSRF policy before save.

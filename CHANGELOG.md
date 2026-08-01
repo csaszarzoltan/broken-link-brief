@@ -169,3 +169,37 @@
 #### Tests
 - Added TDD acceptance coverage for scan modes, bulk input, concurrency controls, duplicate validation, endpoint integration, shared result review, and live status semantics.
 - Re-ran embedded JavaScript syntax validation and the complete regression suite.
+
+### v1.0.7 (2026-08-01)
+
+#### Source-aware result review
+- Preserved the scanned source-page URL on every browser result row.
+- Added a Source page column to single and batch result tables.
+- Added a source-page selector populated from the current result set.
+- Extended result search to include source-page URLs.
+- Added source URL to focused CSV exports.
+- Applied the same source-context model to single scans and flattened batch responses.
+
+#### Tests
+- Added TDD acceptance coverage for source preservation, source filtering, source-aware search, CSV schema, and single-scan context.
+- Re-ran batch, result-review, JavaScript syntax, and full regression suites.
+
+### v1.1.0 (2026-08-01)
+
+#### Durable saved projects
+- Added SQLite-backed named projects for recurring single-page and batch targets.
+- Added target normalization, stable ordering, deduplication, credential rejection, and a 50-target project limit.
+- Added authenticated `GET /api/projects` and `POST /api/projects` endpoints.
+- Added authenticated project archival through `DELETE /api/projects/{id}` without deleting scan history.
+- Added a dashboard project form, empty/loading/error/success states, project list, one-action target loading, and archival confirmation.
+- Loading a one-target project selects Single page; loading a multi-target project selects Multiple pages.
+
+#### Security and reliability
+- Project API targets pass the existing SSRF validation before persistence.
+- Project state uses SQLite with foreign keys and WAL mode and survives process restarts.
+- Project database location is configurable with `BROKENLINKBRIEF_PROJECT_DB`.
+
+#### Tests and documentation
+- Added TDD unit, API integration, validation, archive, dashboard contract, and JavaScript syntax tests.
+- Added the full product analysis and next-version requirements report to `docs/PRODUCT_ANALYSIS_AND_REQUIREMENTS.md`.
+- Added implementation, setup, migration, testing, and packaging documentation.

@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from brokenlinkbrief import __version__
+from brokenlinkbrief.projects import ProjectStore
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
     HistoryStore,
@@ -295,7 +296,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .result-tools { display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid #294066; }
   .result-tools[hidden] { display:none; }
   .result-tools label { display:grid; gap:4px; flex:1 1 240px; }
-  .result-tools input { width:100%; padding:8px 10px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
+  .result-tools input, .result-tools select { width:100%; padding:8px 10px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
   .filter-group { display:flex; gap:6px; flex-wrap:wrap; }
   .filter-group button[aria-pressed="true"] { background:#e94560; border-color:#e94560; }
   .result-count { flex-basis:100%; margin:0; }
@@ -307,11 +308,32 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   textarea { min-height:130px; resize:vertical; padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; font:inherit; }
   input[type="number"] { padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
   @media (max-width:640px) { .batch-grid { grid-template-columns:1fr; } }
+  .project-form { display:grid; gap:10px; }
+  .project-form input, .project-form textarea { width:100%; padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; font:inherit; }
+  .project-list { display:grid; gap:10px; margin-top:16px; }
+  .project-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border:1px solid #294066; border-radius:8px; }
+  .project-item strong { display:block; }
 </style>
 </head>
 <body>
 <a class="skip-link" href="#scanResults">Skip to results</a>
 <h1>BrokenLinkBrief Dashboard</h1>
+<section class="scan-panel" aria-labelledby="projectsHeading">
+  <h2 id="projectsHeading">Saved projects</h2>
+  <p class="muted">Save frequently scanned pages as a reusable project.</p>
+  <form id="projectForm" class="project-form">
+    <label for="projectName">Project name
+      <input id="projectName" required maxlength="120" placeholder="Main website">
+    </label>
+    <label for="projectTargets">Project targets
+      <textarea id="projectTargets" required placeholder="https://example.com&#10;https://example.org" aria-describedby="projectHelp projectStatus"></textarea>
+    </label>
+    <p id="projectHelp" class="muted">Enter one public URL per line, up to 50 targets.</p>
+    <button type="submit" id="saveProject" class="primary">Save project</button>
+  </form>
+  <div id="projectStatus" class="status" role="status" aria-live="polite"></div>
+  <div id="projectList" class="project-list" aria-live="polite"><p class="muted">Loading projects…</p></div>
+</section>
 <section class="scan-panel" aria-labelledby="scanHeading">
   <h2 id="scanHeading">Scan pages</h2>
   <div class="mode-tabs" role="tablist" aria-label="Scan mode">
@@ -347,8 +369,11 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <button type="button" class="secondary" data-result-filter="attention" aria-pressed="false">Needs attention</button>
       <button type="button" class="secondary" data-result-filter="healthy" aria-pressed="false">Healthy</button>
     </div>
+    <label for="sourceFilter">Source page
+      <select id="sourceFilter"><option value="">All source pages</option></select>
+    </label>
     <label for="resultSearch">Search results
-      <input id="resultSearch" type="search" placeholder="URL or reason" autocomplete="off">
+      <input id="resultSearch" type="search" placeholder="Source, URL, status, or reason" autocomplete="off">
     </label>
     <button type="button" id="exportResults" class="secondary">Export visible CSV</button>
     <p id="visibleResultCount" class="muted result-count" aria-live="polite">0 results shown</p>
@@ -495,6 +520,85 @@ document.getElementById('historyDialog').addEventListener('click', (event) => {
   if (event.target === event.currentTarget) event.currentTarget.close();
 });
 
+function apiTokenQuery() {
+  const token = new URLSearchParams(window.location.search).get('token');
+  return token ? `?token=${encodeURIComponent(token)}` : '';
+}
+
+function loadProjectTargets(project) {
+  const targets = project.targets || [];
+  if (targets.length === 1) {
+    document.querySelector('[data-scan-mode="single"]').click();
+    document.getElementById('scanUrl').value = targets[0];
+  } else {
+    document.querySelector('[data-scan-mode="batch"]').click();
+    document.getElementById('batchUrls').value = targets.join('\n');
+  }
+  document.getElementById('scanHeading').scrollIntoView({behavior: 'smooth'});
+}
+
+async function loadProjects() {
+  const container = document.getElementById('projectList');
+  try {
+    const response = await fetch(`/api/projects${apiTokenQuery()}`);
+    const projects = await response.json();
+    if (!response.ok) throw new Error(projects.detail || 'Projects could not be loaded');
+    if (!projects.length) {
+      container.innerHTML = '<p class="muted">No saved projects yet. Save your recurring targets above.</p>';
+      return;
+    }
+    container.innerHTML = projects.map((project, index) =>
+      `<article class="project-item"><div><strong>${escapeHtml(project.name)}</strong>`
+      + `<span class="muted">${project.targets.length} target${project.targets.length === 1 ? '' : 's'}</span></div>`
+      + `<div class="recent-actions"><button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
+      + `<button type="button" class="icon-button" data-project-archive="${index}">Archive</button></div></article>`
+    ).join('');
+    container.querySelectorAll('[data-project-index]').forEach(button => {
+      button.addEventListener('click', () => loadProjectTargets(projects[Number(button.dataset.projectIndex)]));
+    });
+    container.querySelectorAll('[data-project-archive]').forEach(button => {
+      button.addEventListener('click', () => archiveProject(projects[Number(button.dataset.projectArchive)]));
+    });
+  } catch (error) {
+    container.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function archiveProject(project) {
+  if (!window.confirm(`Archive ${project.name}? Scans and history are not deleted.`)) return;
+  const status = document.getElementById('projectStatus');
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}${apiTokenQuery()}`, {method: 'DELETE'});
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Project could not be archived');
+    status.textContent = `Archived ${project.name}.`;
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
+}
+
+document.getElementById('projectForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const status = document.getElementById('projectStatus');
+  const button = document.getElementById('saveProject');
+  let targets;
+  try { targets = parseBatchUrls(document.getElementById('projectTargets').value); }
+  catch (error) { status.textContent = error.message; return; }
+  button.disabled = true;
+  status.textContent = 'Saving project…';
+  try {
+    const response = await fetch(`/api/projects${apiTokenQuery()}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: document.getElementById('projectName').value, targets}),
+    });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.detail || 'Project could not be saved');
+    status.textContent = `Saved ${project.name} with ${project.targets.length} targets.`;
+    document.getElementById('projectForm').reset();
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
 async function loadRecentTargets() {
   const container = document.getElementById('recentTargets');
   const token = new URLSearchParams(window.location.search).get('token');
@@ -549,14 +653,28 @@ function parseBatchUrls(value) {
   return urls;
 }
 
+function attachSourceContext(results, sourceUrl) {
+  return results.map(item => ({...item, source_url: sourceUrl}));
+}
+
 function flattenBatchResults(results) {
-  return Object.values(results).flat();
+  return Object.entries(results).flatMap(([sourceUrl, items]) => attachSourceContext(items, sourceUrl));
+}
+
+function populateSourceFilter(results) {
+  const select = document.getElementById('sourceFilter');
+  const previous = select.value;
+  const sources = [...new Set(results.map(item => item.source_url).filter(Boolean))].sort();
+  select.innerHTML = '<option value="">All source pages</option>'
+    + sources.map(source => `<option value="${escapeHtml(source)}">${escapeHtml(source)}</option>`).join('');
+  select.value = sources.includes(previous) ? previous : '';
 }
 
 function showScanResults(results) {
   latestScanResults = results;
   activeResultFilter = 'all';
   document.getElementById('resultSearch').value = '';
+  populateSourceFilter(results);
   document.querySelectorAll('[data-result-filter]').forEach(button => {
     button.setAttribute('aria-pressed', String(button.dataset.resultFilter === 'all'));
   });
@@ -610,7 +728,7 @@ document.getElementById('scanForm').addEventListener('submit', async (event) => 
     if (!response.ok) throw new Error(payload.detail || 'Scan failed');
     const broken = payload.filter(needsAttention);
     status.textContent = `${payload.length} links checked. ${broken.length} need attention.`;
-    showScanResults(payload);
+    showScanResults(attachSourceContext(payload, input.value.trim()));
     document.getElementById('scanResults').focus(); await Promise.all([loadAll(), loadRecentTargets()]);
   } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
   finally { button.disabled = false; }
@@ -621,23 +739,25 @@ function needsAttention(item) {
 
 function applyResultView() {
   const query = document.getElementById('resultSearch').value.trim().toLowerCase();
+  const source = document.getElementById('sourceFilter').value;
   visibleScanResults = latestScanResults.filter(item => {
     const attention = needsAttention(item);
     const categoryMatches = activeResultFilter === 'all'
       || (activeResultFilter === 'attention' && attention)
       || (activeResultFilter === 'healthy' && !attention);
-    const text = `${item.url} ${item.reason || ''} ${item.status ?? ''}`.toLowerCase();
-    return categoryMatches && (!query || text.includes(query));
+    const text = `${item.source_url || ''} ${item.url} ${item.reason || ''} ${item.status ?? ''}`.toLowerCase();
+    const sourceMatches = !source || item.source_url === source;
+    return categoryMatches && sourceMatches && (!query || text.includes(query));
   });
   const rows = visibleScanResults.map(item => {
     const failed = needsAttention(item);
     const value = item.status === null ? 'No response' : String(item.status);
-    return `<tr><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed ? 'bad' : 'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason || '')}</td></tr>`;
+    return `<tr><td>${escapeHtml(item.source_url || '')}</td><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed ? 'bad' : 'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason || '')}</td></tr>`;
   }).join('');
   document.getElementById('visibleResultCount').textContent = `${visibleScanResults.length} of ${latestScanResults.length} results shown`;
   document.getElementById('exportResults').disabled = visibleScanResults.length === 0;
   document.getElementById('scanResults').innerHTML = visibleScanResults.length
-    ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Source page</th><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<p>No results match the selected filter and search.</p>';
 }
 
@@ -649,7 +769,7 @@ function escapeCsvCell(value) {
 
 function exportVisibleResults() {
   if (!visibleScanResults.length) return;
-  const rows = [['url', 'status', 'reason', 'location'], ...visibleScanResults.map(item => [item.url, item.status, item.reason, item.location])];
+  const rows = [['source_url', 'url', 'status', 'reason', 'location'], ...visibleScanResults.map(item => [item.source_url, item.url, item.status, item.reason, item.location])];
   const csv = rows.map(row => row.map(escapeCsvCell).join(',')).join('\n') + '\n';
   const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
   const link = document.createElement('a');
@@ -667,6 +787,7 @@ document.querySelectorAll('[data-result-filter]').forEach(button => {
   });
 });
 document.getElementById('resultSearch').addEventListener('input', applyResultView);
+document.getElementById('sourceFilter').addEventListener('change', applyResultView);
 document.getElementById('exportResults').addEventListener('click', exportVisibleResults);
 
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -798,6 +919,7 @@ async function loadAll() {
 
 loadAll();
 loadRecentTargets();
+loadProjects();
 </script>
 </body>
 </html>"""
@@ -925,6 +1047,20 @@ class _Handler(BaseHTTPRequestHandler):
             _write_json(self, 200, results)
             return
 
+        if path == "/api/projects":
+            expected_token = get_configured_scan_token()
+            provided_token = params.get("token")
+            if provided_token is None and "Authorization" in self.headers:
+                authorization = self.headers.get("Authorization") or ""
+                if authorization.startswith("Bearer "):
+                    provided_token = authorization.split(" ", 1)[1]
+            if expected_token is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            projects = [asdict(item) for item in ProjectStore().list_active()]
+            _write_json(self, 200, projects)
+            return
+
         # DASHBOARD ENDPOINTS
         if path.startswith("/api/dashboard/"):
             expected_token = get_configured_scan_token()
@@ -1020,9 +1156,82 @@ class _Handler(BaseHTTPRequestHandler):
 
         _write_json(self, 404, {"detail": "not found"})
 
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path.startswith("/api/projects/"):
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query).items()
+                if values
+            }
+            expected_token = get_configured_scan_token()
+            provided_token = params.get("token")
+            if provided_token is None and "Authorization" in self.headers:
+                authorization = self.headers.get("Authorization") or ""
+                if authorization.startswith("Bearer "):
+                    provided_token = authorization.split(" ", 1)[1]
+            if expected_token is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            project_id = path.removeprefix("/api/projects/")
+            if not project_id or "/" in project_id:
+                _write_json(self, 404, {"detail": "not found"})
+                return
+            try:
+                project = ProjectStore().archive(project_id)
+            except KeyError:
+                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                return
+            _write_json(self, 200, asdict(project))
+            return
+        _write_json(self, 404, {"detail": "not found"})
+
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path == "/api/projects":
+            expected_token = get_configured_scan_token()
+            params = {
+                key: values[0]
+                for key, values in parse_qs(parsed.query).items()
+                if values
+            }
+            provided_token = params.get("token")
+            if provided_token is None and "Authorization" in self.headers:
+                authorization = self.headers.get("Authorization") or ""
+                if authorization.startswith("Bearer "):
+                    provided_token = authorization.split(" ", 1)[1]
+            if expected_token is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw_body = self.rfile.read(content_length) if content_length else b""
+            try:
+                body = json.loads(raw_body)
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
+                return
+            targets = body.get("targets")
+            if not isinstance(targets, list):
+                _write_json(self, 400, {"code": "invalid_targets", "detail": "targets must be a list"})
+                return
+            for target in targets:
+                if not isinstance(target, str):
+                    _write_json(self, 400, {"code": "invalid_target", "detail": "every target must be a string"})
+                    return
+                error = validate_scan_url(target)
+                if error is not None:
+                    _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
+                    return
+            try:
+                project = ProjectStore().create(str(body.get("name", "")), targets)
+            except ValueError as exc:
+                _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
+                return
+            _write_json(self, 201, asdict(project))
+            return
 
         if path == "/webhooks":
             # Auth check (same as /scan)

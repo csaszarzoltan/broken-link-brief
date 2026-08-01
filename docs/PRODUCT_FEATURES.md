@@ -18,3 +18,9 @@ Outbound targets must pass `validate_target`; redirect hops must be supplied to 
 ## Compatibility
 
 The new modules are additive. Existing imports and endpoint response shapes are unchanged. The package version is 1.0.0 and installs the `brokenlinkbrief` console command.
+
+## Saved project delivery in 1.1
+
+`projects.py` adds a durable SQLite adapter for named recurring target groups. The main HTTP application now exposes authenticated list, create, and archive operations, and the dashboard can load saved targets directly into single or batch scan mode.
+
+The project database is independent of legacy JSONL history, so upgrading from 1.0.x is additive. Set `BROKENLINKBRIEF_PROJECT_DB` to a persistent writable path in production. Project archival is non-destructive and does not remove scan history.

@@ -185,3 +185,24 @@ This increment removes API-only friction from an existing high-value capability.
 - Added line-based URL parsing and early duplicate/count validation.
 - Added a shared `showScanResults()` path used by single and batch responses.
 - Retained server-side validation as the source of truth and treated browser validation as friction reduction.
+
+## 12. Continued increment: 1.0.7 source-aware result review
+
+The batch workflow exposed an important usability gap: flattening per-source API results removed the user's ability to determine which scanned page contained a particular target link. This increment preserves that context throughout review and export.
+
+### Requirements added
+
+- **UR-SOURCE-01, Must:** Every browser result identifies the scanned source page that produced it.
+- **UR-SOURCE-02, Must:** A user can filter a combined batch result set to one source page.
+- **UX-SOURCE-01, Must:** Result search includes source-page URLs.
+- **DI-SOURCE-01, Must:** Visible CSV exports include `source_url` as the first column.
+- **FR-SOURCE-01, Must:** Single scans attach the submitted target as source context.
+- **FR-SOURCE-02, Must:** Batch response keys are retained when per-source arrays are flattened.
+- **QA-SOURCE-01, Must:** Source preservation, filtering, search, table, and export contracts have automated acceptance coverage.
+
+### Implementation
+
+- Added `attachSourceContext()` for one source/result collection.
+- Updated `flattenBatchResults()` to preserve source keys.
+- Added a dynamically populated source selector and combined it with category and text filters.
+- Added a Source page table column and extended focused CSV exports without changing the existing server API contract.

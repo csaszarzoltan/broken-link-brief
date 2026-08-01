@@ -1,0 +1,141 @@
+"""Durable saved projects for repeat scanning workflows."""
+from __future__ import annotations
+
+import os
+import sqlite3
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
+
+_PROJECT_DB_ENV = "BROKENLINKBRIEF_PROJECT_DB"
+
+
+@dataclass(frozen=True)
+class Project:
+    id: str
+    name: str
+    targets: tuple[str, ...]
+    archived: bool
+    created_at: str
+    updated_at: str
+
+
+def configured_project_db() -> Path:
+    """Return the configured project database path."""
+    return Path(os.environ.get(_PROJECT_DB_ENV, ".brokenlinkbrief.db"))
+
+
+def normalize_target(url: str) -> str:
+    """Normalize a project target without performing network access."""
+    value = url.strip()
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("target must be an absolute HTTP or HTTPS URL")
+    hostname = parsed.hostname.lower()
+    port = parsed.port
+    default_port = 443 if parsed.scheme == "https" else 80
+    netloc = hostname if port in {None, default_port} else f"{hostname}:{port}"
+    if parsed.username or parsed.password:
+        raise ValueError("target credentials are not allowed")
+    path = parsed.path or "/"
+    return urlunsplit((parsed.scheme.lower(), netloc, path, parsed.query, ""))
+
+
+class ProjectStore:
+    """SQLite persistence for named groups of scan targets."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = str(path or configured_project_db())
+        with self._connect() as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    archived INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS project_targets (
+                    project_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    url TEXT NOT NULL,
+                    PRIMARY KEY(project_id, url),
+                    FOREIGN KEY(project_id) REFERENCES projects(id)
+                        ON DELETE CASCADE
+                )"""
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self.path, timeout=10)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        return db
+
+    def create(self, name: str, targets: list[str]) -> Project:
+        clean_name = name.strip()
+        if not clean_name:
+            raise ValueError("name is required")
+        normalized = tuple(dict.fromkeys(normalize_target(item) for item in targets))
+        if not normalized:
+            raise ValueError("at least one target is required")
+        if len(normalized) > 50:
+            raise ValueError("maximum 50 targets per project")
+        now = datetime.now(timezone.utc).isoformat()
+        project_id = uuid.uuid4().hex
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO projects VALUES (?,?,?,?,?)",
+                (project_id, clean_name, 0, now, now),
+            )
+            db.executemany(
+                "INSERT INTO project_targets VALUES (?,?,?)",
+                [(project_id, index, url) for index, url in enumerate(normalized)],
+            )
+        return Project(project_id, clean_name, normalized, False, now, now)
+
+    def get(self, project_id: str) -> Project:
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT * FROM projects WHERE id=?", (project_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(project_id)
+            targets = tuple(
+                item["url"]
+                for item in db.execute(
+                    "SELECT url FROM project_targets WHERE project_id=? "
+                    "ORDER BY position",
+                    (project_id,),
+                ).fetchall()
+            )
+        return Project(
+            row["id"], row["name"], targets, bool(row["archived"]),
+            row["created_at"], row["updated_at"],
+        )
+
+    def list_active(self) -> list[Project]:
+        with self._connect() as db:
+            ids = [
+                row["id"]
+                for row in db.execute(
+                    "SELECT id FROM projects WHERE archived=0 "
+                    "ORDER BY updated_at DESC, name"
+                ).fetchall()
+            ]
+        return [self.get(project_id) for project_id in ids]
+
+    def archive(self, project_id: str) -> Project:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE projects SET archived=1, updated_at=? WHERE id=?",
+                (now, project_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(project_id)
+        return self.get(project_id)

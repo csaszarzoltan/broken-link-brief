@@ -639,3 +639,55 @@ Choose **Multiple pages** in the dashboard to scan several source pages without 
 4. Review the combined link results with the same filters, search, count, and visible-CSV export used by single scans.
 
 The browser validates empty input, more than 50 entries, and exact duplicate URLs before submitting to the existing `/scan-batch` endpoint. Server-side SSRF and request validation remain authoritative.
+
+### Source-aware result review
+
+Every browser result now retains the source page that produced the link. This is especially important for batch scans, where the same target link may appear on several pages.
+
+The latest-results table includes a **Source page** column and the toolbar includes an **All source pages** selector. Search also matches source-page URLs. Focused CSV exports now use this schema:
+
+```text
+source_url,url,status,reason,location
+```
+
+Single-page scans assign the entered target as the source context. Batch scans preserve each key from the per-source API response before flattening rows for review.
+
+## Saved projects in 1.1
+
+The dashboard now supports durable named projects for pages that are scanned repeatedly.
+
+1. Enter a project name.
+2. Enter one public HTTP or HTTPS target per line.
+3. Select **Save project**.
+4. Use **Load targets** to populate the appropriate single-page or multi-page scan form.
+5. Use **Archive** to remove a project from the active list without deleting scan history.
+
+Projects are stored in SQLite. The default database is `.brokenlinkbrief.db` in the application working directory. Override it with:
+
+```bash
+export BROKENLINKBRIEF_PROJECT_DB=/data/brokenlinkbrief.db
+```
+
+For containers, mount a persistent writable volume at the configured database location. Existing 1.0.x history remains in `.history/`; no destructive migration is performed.
+
+### Project API
+
+```text
+GET    /api/projects
+POST   /api/projects
+DELETE /api/projects/{project_id}
+```
+
+Create request:
+
+```json
+{
+  "name": "Main website",
+  "targets": [
+    "https://example.com/",
+    "https://example.com/docs"
+  ]
+}
+```
+
+Project APIs use the same optional token authentication as scan and dashboard APIs. Targets are SSRF-validated before persistence.

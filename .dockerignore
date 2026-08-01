@@ -10,3 +10,7 @@ build
 docs/
 *.md
 !README.md
+
+*.db
+*.db-wal
+*.db-shm

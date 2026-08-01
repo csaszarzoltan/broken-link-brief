@@ -1,11 +1,23 @@
-# Validation Results
+# BrokenLinkBrief 1.1.0 Validation Results
 
-Validated on 2026-08-01 in the handoff environment. The results include the 1.0.2 recent-page, 1.0.3 change-history, 1.0.4 actionable-detail, 1.0.5 result-review, and 1.0.6 browser-batch increments.
+Validated on 2026-08-01 in the handoff environment.
 
-## Automated tests
+## Baseline
+
+Before modification:
 
 ```text
-326 passed, 1 xpassed in 24.58s
+331 passed, 1 xpassed in 24.77s
+```
+
+## TDD evidence
+
+The initial saved-project test module failed during collection because `brokenlinkbrief.projects` did not exist. After the first implementation, the focused project and JavaScript tests passed. Two additional failing tests were then added for project archival and its browser action; both passed after implementation.
+
+## Final automated regression
+
+```text
+339 passed, 1 xpassed in 23.93s
 ```
 
 Command:
@@ -14,19 +26,15 @@ Command:
 python -m pytest -q --disable-warnings
 ```
 
-The xpass is a pre-existing test marked as expected-to-fail whose behavior is now implemented. No test failed.
+No test failed. The XPASS is a pre-existing expected-failure test whose behavior is implemented.
 
-## Static validation
+## Additional validation
 
-Python bytecode compilation is included in packaging validation. Ruff is declared in the project's development dependencies, but the executable was not installed in the handoff environment, so lint could not be rerun there. Install development dependencies and run `ruff check src tests` before release if the release environment does not already apply that gate.
+- Python source and tests successfully passed `python -m compileall -q src tests`.
+- Embedded dashboard JavaScript successfully passed `node --check`.
+- ZIP integrity validation reported no compressed-data errors.
+- Runtime SQLite files, JSONL history, caches, bytecode, and temporary files were excluded.
 
+## Tooling limitation
 
-## Dashboard JavaScript syntax
-
-The embedded dashboard script was extracted and validated with:
-
-```bash
-node --check dashboard.js
-```
-
-A regression test now performs this validation automatically whenever Node.js is available.
+Ruff is declared in the development dependencies, but its executable was unavailable in this handoff environment. Install development dependencies and run the documented `ruff check src tests` release gate before production release.
