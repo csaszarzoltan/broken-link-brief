@@ -213,3 +213,7 @@ Exports contain only name and targets. Imports are authenticated and SSRF valida
 ### Duplicate project API
 
 `POST /api/projects/{id}/duplicate` creates a new active copy with a deterministic available name. No scan history or runtime state is copied.
+
+### Project pin API
+
+`POST /api/projects/{id}/pin` accepts a JSON boolean `pinned` field. Pinned projects are listed before unpinned projects. Existing databases receive the new column automatically.

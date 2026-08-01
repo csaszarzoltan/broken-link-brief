@@ -258,3 +258,17 @@
 #### Tests
 - Added failing-first store, copy-name, API, missing-project, and browser contract tests.
 - Re-ran all project tests, dashboard JavaScript validation, and the full regression suite.
+
+### v1.1.5 (2026-08-01)
+
+#### Pinned projects
+- Added persistent pin and unpin actions for frequently used projects.
+- Active and archived lists now place pinned projects first, followed by recently updated projects.
+- Added authenticated `POST /api/projects/{id}/pin` with strict boolean validation.
+- Added a backward-compatible SQLite schema migration for existing 1.1.x project databases.
+- Duplicated and imported projects start unpinned so personal prioritization does not leak into new copies.
+- Added explicit dashboard guidance and accessible status feedback.
+
+#### Tests
+- Added failing-first persistence, ordering, migration, duplication, API, and browser contract tests.
+- Re-ran all project tests, dashboard JavaScript validation, and the complete regression suite.

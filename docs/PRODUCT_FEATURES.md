@@ -40,3 +40,7 @@ Project names and targets can be exported as a versioned JSON configuration and 
 ### Project duplication in 1.1.4
 
 Projects can be copied with one action. The duplicate receives a new ID, remains independent of the source, starts active, and retains only the name-derived copy label and ordered targets.
+
+### Pinned projects in 1.1.5
+
+Frequently used projects can be pinned to the beginning of the active or archived list. Pin state is durable, independently editable, and automatically supported for databases created by earlier 1.1 releases.

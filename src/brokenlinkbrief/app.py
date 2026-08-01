@@ -320,7 +320,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <h1>BrokenLinkBrief Dashboard</h1>
 <section class="scan-panel" aria-labelledby="projectsHeading">
   <h2 id="projectsHeading">Saved projects</h2>
-  <p class="muted">Save frequently scanned pages as a reusable project.</p>
+  <p class="muted">Save frequently scanned pages as a reusable project. Pinned projects appear first.</p>
   <form id="projectForm" class="project-form">
     <label for="projectName">Project name
       <input id="projectName" required maxlength="120" placeholder="Main website">
@@ -577,6 +577,7 @@ async function loadProjects() {
       + `<button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
       + `<button type="button" class="secondary" data-project-export="${index}">Export project</button>`
       + `<button type="button" class="secondary" data-project-duplicate="${index}">Duplicate</button>`
+      + `<button type="button" class="secondary" data-project-pin="${index}">${project.pinned ? 'Unpin' : 'Pin'}</button>`
       + (project.archived
         ? `<button type="button" class="secondary" data-project-restore="${index}">Restore</button>`
         : `<button type="button" class="secondary" data-project-edit="${index}">Edit</button>`
@@ -598,6 +599,9 @@ async function loadProjects() {
     container.querySelectorAll('[data-project-duplicate]').forEach(button => {
       button.addEventListener('click', () => duplicateProject(projects[Number(button.dataset.projectDuplicate)]));
     });
+    container.querySelectorAll('[data-project-pin]').forEach(button => {
+      button.addEventListener('click', () => toggleProjectPin(projects[Number(button.dataset.projectPin)]));
+    });
     container.querySelectorAll('[data-project-edit]').forEach(button => {
       button.addEventListener('click', () => editProject(projects[Number(button.dataset.projectEdit)]));
     });
@@ -607,6 +611,20 @@ async function loadProjects() {
   } catch (error) {
     container.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
   }
+}
+
+async function toggleProjectPin(project) {
+  const status = document.getElementById('projectStatus');
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/pin${apiTokenQuery()}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pinned: !project.pinned}),
+    });
+    const updated = await response.json();
+    if (!response.ok) throw new Error(updated.detail || 'Project pin could not be updated');
+    status.textContent = `${updated.pinned ? 'Pinned' : 'Unpinned'} ${project.name}.`;
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
 }
 
 async function duplicateProject(project) {
@@ -1391,6 +1409,33 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path.startswith("/api/projects/") and path.endswith("/pin"):
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(content_length) if content_length else b"")
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
+                return
+            if not isinstance(body, dict) or not isinstance(body.get("pinned"), bool):
+                _write_json(self, 400, {"code": "invalid_pinned", "detail": "pinned must be a boolean"})
+                return
+            project_id = path.removeprefix("/api/projects/").removesuffix("/pin")
+            try:
+                project = ProjectStore().set_pinned(project_id, body["pinned"])
+            except KeyError:
+                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                return
+            _write_json(self, 200, asdict(project))
+            return
 
         if path.startswith("/api/projects/") and path.endswith("/duplicate"):
             params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}

@@ -184,3 +184,24 @@ Version 1.1.4 reduces repetitive setup when users need a project variant with th
 - Added the authenticated duplicate route.
 - Added a browser **Duplicate** action for active and archived projects.
 - After duplication, the dashboard returns to the active project list and announces the generated copy name.
+
+## 11. Continued increment: 1.1.5 pinned projects
+
+As the saved-project list grows, recency alone is not enough to keep the most operationally important projects easy to reach. Version 1.1.5 adds persistent pinning while retaining recent-update ordering for the remaining projects.
+
+### Requirements added
+
+- **UR-PROJ-09, Should:** A user can pin frequently used active or archived projects.
+- **UX-PROJ-04, Must:** Pinned projects appear before unpinned projects and the action label reflects current state.
+- **FR-PROJ-12, Must:** Pin state survives restarts and can be changed independently of project content.
+- **DATA-PROJ-01, Must:** Existing project databases migrate without manual intervention or data loss.
+- **FR-PROJ-13, Must:** Duplicated and imported projects begin unpinned.
+- **QA-PROJ-06, Must:** Persistence, ordering, migration, copy behavior, API, and browser contracts have failing-first tests.
+
+### Implementation details
+
+- Added the `pinned` field to the immutable Project model.
+- Added automatic SQLite column migration using `PRAGMA table_info` and `ALTER TABLE`.
+- Added `ProjectStore.set_pinned()` and pin-first list ordering.
+- Added authenticated pin API handling with strict boolean payload validation.
+- Added Pin and Unpin dashboard actions with live status feedback.

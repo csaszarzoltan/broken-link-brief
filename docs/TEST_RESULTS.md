@@ -1,4 +1,4 @@
-# BrokenLinkBrief 1.1.4 Validation Results
+# BrokenLinkBrief 1.1.5 Validation Results
 
 Validated on 2026-08-01 in the handoff environment.
 
@@ -9,23 +9,24 @@ Validated on 2026-08-01 in the handoff environment.
 - Project lifecycle 1.1.1: `345 passed, 1 xpassed`
 - Project quick scan 1.1.2: `349 passed, 1 xpassed`
 - Project portability 1.1.3: `355 passed, 1 xpassed`
+- Project duplication 1.1.4: `360 passed, 1 xpassed`
 
-## 1.1.4 TDD evidence
+## 1.1.5 TDD evidence
 
-Five failing-first tests were added for project-copy identity, deterministic copy naming, duplicate API behavior, missing-source handling, and the dashboard Duplicate action. The initial run reported five failures because duplication did not exist.
+Five failing-first tests were added for pin persistence and ordering, automatic migration of an existing 1.1 database, unpinned duplication, pin API behavior, and dashboard pin controls. The initial run reported five failures because pinning did not exist.
 
 Focused result after implementation:
 
 ```text
-30 passed in 2.56s
+35 passed in 2.45s
 ```
 
-The focused suite covered project creation, editing, archive/restore, quick scanning, summaries, import/export, duplication, API behavior, SSRF validation, dashboard contracts, and embedded JavaScript syntax.
+The focused suite covered project creation, lifecycle, quick scanning, summaries, portability, duplication, pinning, database migration, API behavior, dashboard contracts, and embedded JavaScript syntax.
 
 ## Final automated regression
 
 ```text
-360 passed, 1 xpassed in 26.59s
+365 passed, 1 xpassed in 25.96s
 ```
 
 Command:

@@ -20,6 +20,7 @@ class Project:
     archived: bool
     created_at: str
     updated_at: str
+    pinned: bool = False
 
 
 def configured_project_db() -> Path:
@@ -56,9 +57,18 @@ class ProjectStore:
                     name TEXT NOT NULL,
                     archived INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    pinned INTEGER NOT NULL DEFAULT 0
                 )"""
             )
+            project_columns = {
+                row["name"]
+                for row in db.execute("PRAGMA table_info(projects)").fetchall()
+            }
+            if "pinned" not in project_columns:
+                db.execute(
+                    "ALTER TABLE projects ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
+                )
             db.execute(
                 """CREATE TABLE IF NOT EXISTS project_targets (
                     project_id TEXT NOT NULL,
@@ -89,14 +99,16 @@ class ProjectStore:
         project_id = uuid.uuid4().hex
         with self._connect() as db:
             db.execute(
-                "INSERT INTO projects VALUES (?,?,?,?,?)",
-                (project_id, clean_name, 0, now, now),
+                "INSERT INTO projects "
+                "(id, name, archived, created_at, updated_at, pinned) "
+                "VALUES (?,?,?,?,?,?)",
+                (project_id, clean_name, 0, now, now, 0),
             )
             db.executemany(
                 "INSERT INTO project_targets VALUES (?,?,?)",
                 [(project_id, index, url) for index, url in enumerate(normalized)],
             )
-        return Project(project_id, clean_name, normalized, False, now, now)
+        return Project(project_id, clean_name, normalized, False, now, now, False)
 
     def get(self, project_id: str) -> Project:
         with self._connect() as db:
@@ -115,7 +127,7 @@ class ProjectStore:
             )
         return Project(
             row["id"], row["name"], targets, bool(row["archived"]),
-            row["created_at"], row["updated_at"],
+            row["created_at"], row["updated_at"], bool(row["pinned"]),
         )
 
     def _list_by_archived(self, archived: bool) -> list[Project]:
@@ -124,7 +136,7 @@ class ProjectStore:
                 row["id"]
                 for row in db.execute(
                     "SELECT id FROM projects WHERE archived=? "
-                    "ORDER BY updated_at DESC, name",
+                    "ORDER BY pinned DESC, updated_at DESC, name",
                     (int(archived),),
                 ).fetchall()
             ]
@@ -135,6 +147,18 @@ class ProjectStore:
 
     def list_archived(self) -> list[Project]:
         return self._list_by_archived(True)
+
+    def set_pinned(self, project_id: str, pinned: bool) -> Project:
+        """Pin or unpin a project and return its updated representation."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE projects SET pinned=?, updated_at=? WHERE id=?",
+                (int(pinned), now, project_id),
+            )
+            if cursor.rowcount == 0:
+                raise KeyError(project_id)
+        return self.get(project_id)
 
     def duplicate(self, project_id: str) -> Project:
         """Create an active copy with a deterministic available name."""

@@ -770,3 +770,25 @@ API:
 ```text
 POST /api/projects/{project_id}/duplicate
 ```
+
+### Pin frequently used projects
+
+Use **Pin** on an active or archived project to keep it at the top of its list. Use **Unpin** to return it to normal recently-updated ordering.
+
+Pin state is stored in the project database and survives restarts. Existing 1.1.x databases are migrated automatically by adding a non-breaking `pinned` column with a false default.
+
+New duplicates and imported projects begin unpinned. This keeps prioritization intentional and prevents a source project's personal ordering choice from propagating to copies.
+
+API:
+
+```text
+POST /api/projects/{project_id}/pin
+```
+
+Request body:
+
+```json
+{
+  "pinned": true
+}
+```
