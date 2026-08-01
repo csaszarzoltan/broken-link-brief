@@ -10,6 +10,8 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 - 🔔 Webhook notifications when broken links are found
 - 📧 Email notifications via SMTP when broken links are detected
 - 💬 Slack integration via Incoming Webhooks
+- 🕐 **Scheduled scanning** — cron-based recurring scans with SQLite persistence and regression detection
+- 🔄 **Regression detection** — compare scans to surface newly broken links
 - 🔒 Optional token-based authentication
 - 📝 JSONL usage logging for analytics
 - 🛡️ SSRF protection for URL validation
@@ -342,6 +344,94 @@ python -m brokenlinkbrief.app
 # In another terminal: scan a page — notifications fire automatically
 curl "http://127.0.0.1:8000/scan?url=https://example.com"
 ```
+
+## Scheduled Scanning
+
+BrokenLinkBrief supports **automated recurring scans** through a scheduler that persists schedules in SQLite, leases work atomically, and detects regressions between scan runs.
+
+### Features
+
+- **Cron-based scheduling** — express scan frequency with standard 5-field cron expressions
+- **SQLite persistence** — schedules survive process restarts
+- **Atomic worker leasing** — prevent duplicate scans when multiple workers run
+- **Regression detection** — compare current scan results against the last successful scan to surface newly broken links
+- **Notification integration** — send regression alerts via email, Slack, or webhook
+
+### Configuration
+
+Define projects in a YAML or JSON file:
+
+```yaml
+version: "1.0"
+
+projects:
+  - name: "Main website"
+    urls:
+      - "https://example.com/"
+      - "https://example.com/docs"
+    schedule:
+      cron: "0 9 * * *"
+      timezone: "UTC"
+    notifications:
+      - type: email
+        target: "team@example.com"
+      - type: slack
+        target: "#broken-links"
+    options:
+      timeout: 15.0
+      max_workers: 10
+```
+
+See [`examples/schedule-config.yaml`](examples/schedule-config.yaml) for a complete example and [`docs/scheduled-scanning.md`](docs/scheduled-scanning.md) for the full reference.
+
+### Quick Start
+
+```bash
+# Load and validate the config
+python -c "
+from pathlib import Path
+from brokenlinkbrief.scheduler_config import load_projects_config
+
+configs = load_projects_config(Path('examples/schedule-config.yaml'))
+for c in configs:
+    print(f'{c.name}: {c.schedule.cron} ({c.schedule.timezone})')
+"
+
+# Run a scan for a project
+python -c "
+from brokenlinkbrief.scheduled_scan import ScheduledScanExecutor
+
+executor = ScheduledScanExecutor(max_retries=3, retry_delay=1.0)
+result = executor.execute_scan({
+    'id': 'docs',
+    'name': 'Documentation',
+    'urls': ['https://example.com/'],
+})
+print(f'Status: {result.status}, Broken: {result.broken_count}')
+"
+```
+
+### Cron Examples
+
+| Cron | Frequency |
+|------|-----------|
+| `0 9 * * *` | Daily at 09:00 |
+| `0 */4 * * *` | Every 4 hours |
+| `*/15 * * * *` | Every 15 minutes |
+| `0 9 * * 1-5` | Weekdays at 09:00 |
+
+### Deployment
+
+Scheduled scanning integrates with standard cron-based deployment:
+
+```bash
+# Systemd timer, Docker cron, or bare metal crontab
+0 * * * * cd /opt/broken-link-brief && \
+  .venv/bin/python -m brokenlinkbrief.app --schedule \
+  --config /opt/broken-link-brief/schedule-config.yaml
+```
+
+See [`docs/scheduled-scanning.md`](docs/scheduled-scanning.md) for systemd, Docker, and Docker Compose deployment guides.
 
 ## Dashboard
 

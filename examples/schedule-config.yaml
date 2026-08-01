@@ -1,0 +1,58 @@
+# BrokenLinkBrief — Scheduled Scanning Configuration
+#
+# This file defines projects to be scanned on a recurring schedule.
+# Load it with load_projects_config() or pass it to SchedulerService.
+#
+# Schema version 1.0
+# Docs: https://github.com/csaszarzoltan/broken-link-brief/blob/main/docs/scheduled-scanning.md
+
+version: "1.0"
+
+projects:
+  # Example 1: Main website — scan daily at 09:00 UTC
+  - name: "Main website"
+    urls:
+      - "https://example.com/"
+      - "https://example.com/docs"
+      - "https://example.com/api"
+    schedule:
+      cron: "0 9 * * *"
+      timezone: "UTC"
+    notifications:
+      - type: email
+        target: "team@example.com"
+      - type: slack
+        target: "#broken-links"
+    options:
+      timeout: 15.0
+      max_workers: 10
+
+  # Example 2: Marketing site — scan every 4 hours, Swiss time
+  - name: "Marketing site"
+    urls:
+      - "https://marketing.example.com/"
+      - "https://marketing.example.com/pricing"
+    schedule:
+      cron: "0 */4 * * *"
+      timezone: "Europe/Zurich"
+    notifications:
+      - type: slack
+        target: "#marketing-alerts"
+    options:
+      timeout: 10.0
+      max_workers: 5
+
+  # Example 3: API docs — scan hourly, webhook notification
+  - name: "API documentation"
+    urls:
+      - "https://api.example.com/docs"
+    schedule:
+      cron: "0 * * * *"
+      timezone: "America/New_York"
+    notifications:
+      - type: webhook
+        target: "api-docs"
+        webhook_url: "https://hooks.example.com/blb-alerts"
+    options:
+      timeout: 10.0
+      max_workers: 3

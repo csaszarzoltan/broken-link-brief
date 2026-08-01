@@ -272,3 +272,22 @@
 #### Tests
 - Added failing-first persistence, ordering, migration, duplication, API, and browser contract tests.
 - Re-ran all project tests, dashboard JavaScript validation, and the complete regression suite.
+
+### v1.2.0 (2026-08-01)
+
+#### Scheduled scanning
+- Added cron-based recurring scans with SQLite persistence and atomic worker leasing (`SchedulerService`, `ScheduleStore`).
+- Added YAML/JSON project configuration with validation (`scheduler_config.py` — `load_projects_config`, `validate_project_config`).
+- Added `ScheduledScanExecutor` for running scans with retry logic and result aggregation.
+- Added `ScanHistoryStore` for persisting scan results in SQLite with pagination and regression flag tracking.
+- Added `RegressionDetector` for comparing current scans against the last successful scan to surface newly broken links.
+- Added `RegressionNotifier` for formatting and sending regression/resolution alerts.
+- Added `aggregate_scheduled_projects()` for merging schedules with project metadata for dashboard views.
+- Added cron expression parsing and timezone validation helpers.
+- SSRF validation enforced in both `SlackNotifier.__init__` and `deliver_webhook()`.
+
+#### Documentation
+- Added `docs/scheduled-scanning.md` — full reference: config format, cron patterns, deployment guides (systemd, Docker, bare metal, Docker Compose).
+- Added `examples/schedule-config.yaml` — annotated 3-project example config.
+- Updated README with scheduled scanning features, quick start, and cron reference table.
+- Added changelog entry for v1.2.0.
