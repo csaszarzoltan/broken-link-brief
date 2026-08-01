@@ -33,7 +33,7 @@ from brokenlinkbrief.package import (
 )
 from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 from brokenlinkbrief.scheduler import ScheduleStore
-from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects, ScheduledProjectView
+from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
 from brokenlinkbrief.scan_history import ScanHistoryStore
 
 _AUTH_DETAIL = "missing or invalid scan token"
