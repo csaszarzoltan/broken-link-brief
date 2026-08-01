@@ -43,6 +43,14 @@ class ScheduleStore:
             db.execute("INSERT INTO schedules VALUES (?,?,?,?,?,?,NULL,NULL)", tuple(item.__dict__.values()))
         return item
 
+    def list_active(self) -> list[Schedule]:
+        """Return all ACTIVE schedules ordered by next_due_at."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT * FROM schedules WHERE state='ACTIVE' ORDER BY next_due"
+            ).fetchall()
+        return [Schedule(r["id"], r["project_id"], r["cadence"], r["timezone"], r["state"], r["next_due"]) for r in rows]
+
     def claim_due(self, *, now: float, worker_id: str, limit: int = 10) -> list[Schedule]:
         if not worker_id or limit < 1:
             raise ValueError("worker_id and positive limit required")
@@ -55,3 +63,37 @@ class ScheduleStore:
             for row in rows:
                 db.execute("UPDATE schedules SET lease_owner=?, lease_at=?, state='RUNNING' WHERE id=? AND lease_owner IS NULL", (worker_id, now, row["id"]))
         return [Schedule(r["id"], r["project_id"], r["cadence"], r["timezone"], "RUNNING", r["next_due"]) for r in rows]
+
+
+def parse_cron_expression(cron: str) -> list[str]:
+    """Parse a cron expression into its 5 fields.
+
+    Args:
+        cron: Cron expression with 5 fields (minute hour day month weekday)
+
+    Returns:
+        List of 5 field strings.
+
+    Raises:
+        ValueError: If cron expression doesn't have exactly 5 fields.
+    """
+    fields = cron.strip().split()
+    if len(fields) != 5:
+        raise ValueError(f"Cron expression must have exactly 5 fields, got {len(fields)}: {cron}")
+    return fields
+
+
+def validate_timezone(tz: str) -> bool:
+    """Validate a timezone string using zoneinfo.
+
+    Args:
+        tz: Timezone string (e.g., 'UTC', 'Europe/Zurich')
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    try:
+        ZoneInfo(tz)
+        return True
+    except Exception:
+        return False

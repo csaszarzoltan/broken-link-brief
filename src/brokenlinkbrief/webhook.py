@@ -193,6 +193,9 @@ def deliver_webhook(
     Returns the HTTP status code on success.  Raises ``ConnectionError``
     or ``RuntimeError`` on failure so the caller can decide on retries.
     """
+    error = validate_webhook_url(url)
+    if error:
+        raise ValueError(f"SSRF blocked: {error}")
     headers: dict[str, str] = {
         "Content-Type": "application/json",
     }

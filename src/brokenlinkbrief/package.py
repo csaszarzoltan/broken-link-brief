@@ -753,6 +753,17 @@ class HistoryStore:
         )
         return sorted_domains
 
+    def get_project_trend(
+        self,
+        project_id: str,
+        days: int = 7,
+    ) -> list[dict]:
+        """Return daily broken-link trend data for a specific project.
+
+        Returns list of {"date": "YYYY-MM-DD", "total": N, "broken": N}.
+        """
+        raise NotImplementedError("get_project_trend not yet implemented")
+
 
 def record_scan(results: list[LinkResult], url: str) -> None:
     """Public API to record a scan result in history.

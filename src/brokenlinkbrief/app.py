@@ -32,6 +32,9 @@ from brokenlinkbrief.package import (
     validate_scan_url,
 )
 from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
+from brokenlinkbrief.scheduler import ScheduleStore
+from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects, ScheduledProjectView
+from brokenlinkbrief.scan_history import ScanHistoryStore
 
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
@@ -1322,6 +1325,32 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
             _write_json(self, 404, {"detail": "not found"})
+            return
+
+        # SCHEDULED PROJECTS ENDPOINTS
+        if path == "/api/scheduled-projects":
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            schedule_store = ScheduleStore()
+            history_store = ScanHistoryStore()
+            project_store = ProjectStore()
+            schedules = schedule_store.list_active()
+            projects = project_store.list_active()
+            views = aggregate_scheduled_projects(
+                schedules=schedules,
+                projects=projects,
+                scan_history_store=history_store,
+            )
+            _write_json(self, 200, [v.__dict__ for v in views])
             return
 
         if path == "/dashboard":
