@@ -202,3 +202,14 @@ Project updates preserve stable IDs and rerun target validation.
 ### Project scan summary
 
 Each project returned by `GET /api/projects` includes `scan_summary` with scanned and unscanned target counts, latest-snapshot link totals, broken count, and latest scan timestamp. The dashboard uses these fields for the project status line and one-action project execution.
+
+### Project configuration portability
+
+- `GET /api/projects/{id}/export` returns schema version 1 configuration.
+- `POST /api/projects/import` creates a new project from supported JSON.
+
+Exports contain only name and targets. Imports are authenticated and SSRF validated.
+
+### Duplicate project API
+
+`POST /api/projects/{id}/duplicate` creates a new active copy with a deterministic available name. No scan history or runtime state is copied.

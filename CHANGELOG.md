@@ -230,3 +230,31 @@
 #### Tests
 - Added failing-first tests for latest-scan aggregation, unscanned projects, API summaries, and one-action browser scanning.
 - Re-ran project lifecycle, JavaScript syntax, and full regression suites.
+
+### v1.1.3 (2026-08-01)
+
+#### Portable project configuration
+- Added versioned JSON export for active and archived project configurations.
+- Added JSON project import with a new stable project identity.
+- Added dashboard **Export project** and **Import project** workflows.
+- Added authenticated `GET /api/projects/{id}/export` and `POST /api/projects/import` endpoints.
+- Imports reapply schema validation, target type checks, normalization, deduplication, project limits, credential rejection, and SSRF validation.
+- Runtime scan history, project IDs, archive state, and timestamps are intentionally excluded from portable configuration files.
+
+#### Tests
+- Added failing-first store, schema, API, security, and browser contract tests.
+- Re-ran project, dashboard JavaScript, and full regression suites.
+
+### v1.1.4 (2026-08-01)
+
+#### Project duplication
+- Added one-action duplication for active and archived projects.
+- Duplicates receive a new stable identity and always start active.
+- Target order and normalized values are preserved without copying history or runtime state.
+- Copy names are selected deterministically as `copy`, `copy 2`, and so on.
+- Added authenticated `POST /api/projects/{id}/duplicate`.
+- Added dashboard **Duplicate** action and accessible success/error feedback.
+
+#### Tests
+- Added failing-first store, copy-name, API, missing-project, and browser contract tests.
+- Re-ran all project tests, dashboard JavaScript validation, and the full regression suite.

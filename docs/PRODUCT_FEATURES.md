@@ -32,3 +32,11 @@ Saved projects can be edited without changing their IDs. Archived projects are a
 ### One-action project scans in 1.1.2
 
 Active projects can start scanning immediately. Project API responses also include a compact latest-state summary derived from retained history. Use `BROKENLINKBRIEF_HISTORY_DIR` to place JSONL history on persistent storage.
+
+### Portable project configuration in 1.1.3
+
+Project names and targets can be exported as a versioned JSON configuration and imported into another installation. Portable files intentionally omit runtime history and identity. Import creates a new project and reruns all target validation.
+
+### Project duplication in 1.1.4
+
+Projects can be copied with one action. The duplicate receives a new ID, remains independent of the source, starts active, and retains only the name-derived copy label and ordered targets.

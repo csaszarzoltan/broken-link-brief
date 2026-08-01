@@ -136,6 +136,43 @@ class ProjectStore:
     def list_archived(self) -> list[Project]:
         return self._list_by_archived(True)
 
+    def duplicate(self, project_id: str) -> Project:
+        """Create an active copy with a deterministic available name."""
+        source = self.get(project_id)
+        with self._connect() as db:
+            names = {
+                row["name"]
+                for row in db.execute("SELECT name FROM projects").fetchall()
+            }
+        base = f"{source.name} copy"
+        candidate = base
+        suffix = 2
+        while candidate in names:
+            candidate = f"{base} {suffix}"
+            suffix += 1
+        return self.create(candidate, list(source.targets))
+
+    def export_configuration(self, project_id: str) -> dict[str, object]:
+        """Return a portable, versioned configuration without runtime state."""
+        project = self.get(project_id)
+        return {
+            "schema_version": 1,
+            "name": project.name,
+            "targets": list(project.targets),
+        }
+
+    def import_configuration(self, payload: dict[str, object]) -> Project:
+        """Create a new project from a supported portable configuration."""
+        if payload.get("schema_version") != 1:
+            raise ValueError("unsupported project configuration schema")
+        name = payload.get("name")
+        targets = payload.get("targets")
+        if not isinstance(name, str) or not isinstance(targets, list):
+            raise ValueError("project configuration requires name and targets")
+        if not all(isinstance(item, str) for item in targets):
+            raise ValueError("project targets must be strings")
+        return self.create(name, targets)
+
     def summarize(self, project: Project, history_store: object) -> dict[str, object]:
         """Aggregate the latest retained scan for every project target."""
         scanned_targets = 0

@@ -146,3 +146,41 @@ Version 1.1.2 removes the final repeated step in the saved-project workflow. Use
 - Enriched project API items with `scan_summary`.
 - Added `runProjectScan()` and a primary project-card action.
 - Added `BROKENLINKBRIEF_HISTORY_DIR` support to `HistoryStore` while preserving `.history` as the default.
+
+## 9. Continued increment: 1.1.3 portable project configuration
+
+Version 1.1.3 supports repeat setup across installations without exporting runtime or sensitive state. Users can download a minimal versioned project configuration and import it as a new project.
+
+### Requirements added
+
+- **UR-PROJ-07, Should:** A user can export and import reusable project configuration through the dashboard.
+- **DI-PROJ-01, Must:** Portable configuration has an explicit schema version.
+- **SEC-PROJ-03, Must:** Imports use the same validation and SSRF boundary as project creation.
+- **PRIV-PROJ-01, Must:** Portable exports omit runtime identifiers, timestamps, history, archive state, findings, and secrets.
+- **QA-PROJ-04, Must:** Store, schema, API, security, and browser contracts have failing-first tests.
+
+### Implementation details
+
+- Added `ProjectStore.export_configuration()` and `import_configuration()`.
+- Added authenticated export and import API routes.
+- Added browser JSON download and file-selection workflows.
+- Unsupported schemas fail explicitly rather than being guessed or silently upgraded.
+
+## 10. Continued increment: 1.1.4 project duplication
+
+Version 1.1.4 reduces repetitive setup when users need a project variant with the same targets. Both active and archived projects can be duplicated, while the source project remains unchanged.
+
+### Requirements added
+
+- **UR-PROJ-08, Should:** A user can duplicate a project in one action.
+- **FR-PROJ-09, Must:** A duplicate receives a new identity and starts active.
+- **FR-PROJ-10, Must:** Duplicate naming is deterministic and avoids existing project names.
+- **PRIV-PROJ-02, Must:** Duplication copies configuration only, not history or runtime state.
+- **QA-PROJ-05, Must:** Store, naming, API, error, and browser contracts have failing-first tests.
+
+### Implementation details
+
+- Added `ProjectStore.duplicate()`.
+- Added the authenticated duplicate route.
+- Added a browser **Duplicate** action for active and archived projects.
+- After duplication, the dashboard returns to the active project list and announces the generated copy name.

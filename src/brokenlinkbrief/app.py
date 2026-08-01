@@ -333,6 +333,8 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
       <button type="submit" id="saveProject" class="primary">Save project</button>
       <button type="button" id="cancelProjectEdit" class="secondary" hidden>Cancel edit</button>
       <button type="button" id="toggleArchivedProjects" class="secondary">Show archived</button>
+      <label class="secondary" for="projectImportFile">Import project</label>
+      <input id="projectImportFile" type="file" accept="application/json,.json" hidden>
     </div>
   </form>
   <div id="projectStatus" class="status" role="status" aria-live="polite"></div>
@@ -573,6 +575,8 @@ async function loadProjects() {
       + `<div class="recent-actions">`
       + (!project.archived ? `<button type="button" class="primary" data-project-run="${index}">Run project scan</button>` : '')
       + `<button type="button" class="secondary" data-project-index="${index}">Load targets</button>`
+      + `<button type="button" class="secondary" data-project-export="${index}">Export project</button>`
+      + `<button type="button" class="secondary" data-project-duplicate="${index}">Duplicate</button>`
       + (project.archived
         ? `<button type="button" class="secondary" data-project-restore="${index}">Restore</button>`
         : `<button type="button" class="secondary" data-project-edit="${index}">Edit</button>`
@@ -588,6 +592,12 @@ async function loadProjects() {
     container.querySelectorAll('[data-project-archive]').forEach(button => {
       button.addEventListener('click', () => archiveProject(projects[Number(button.dataset.projectArchive)]));
     });
+    container.querySelectorAll('[data-project-export]').forEach(button => {
+      button.addEventListener('click', () => exportProject(projects[Number(button.dataset.projectExport)]));
+    });
+    container.querySelectorAll('[data-project-duplicate]').forEach(button => {
+      button.addEventListener('click', () => duplicateProject(projects[Number(button.dataset.projectDuplicate)]));
+    });
     container.querySelectorAll('[data-project-edit]').forEach(button => {
       button.addEventListener('click', () => editProject(projects[Number(button.dataset.projectEdit)]));
     });
@@ -598,6 +608,59 @@ async function loadProjects() {
     container.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
   }
 }
+
+async function duplicateProject(project) {
+  const status = document.getElementById('projectStatus');
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/duplicate${apiTokenQuery()}`, {method: 'POST'});
+    const duplicate = await response.json();
+    if (!response.ok) throw new Error(duplicate.detail || 'Project could not be duplicated');
+    status.textContent = `Duplicated ${project.name} as ${duplicate.name}.`;
+    showingArchivedProjects = false;
+    document.getElementById('toggleArchivedProjects').textContent = 'Show archived';
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function exportProject(project) {
+  const status = document.getElementById('projectStatus');
+  try {
+    const response = await fetch(`/api/projects/${encodeURIComponent(project.id)}/export${apiTokenQuery()}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Project could not be exported');
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'brokenlinkbrief-project.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    status.textContent = `Exported ${project.name}.`;
+  } catch (error) { status.textContent = error.message; }
+}
+
+async function importProject(file) {
+  const status = document.getElementById('projectStatus');
+  try {
+    const text = await file.text();
+    let configuration;
+    try { configuration = JSON.parse(text); }
+    catch (error) { throw new Error('The selected file is not valid JSON.'); }
+    const response = await fetch(`/api/projects/import${apiTokenQuery()}`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(configuration),
+    });
+    const project = await response.json();
+    if (!response.ok) throw new Error(project.detail || 'Project could not be imported');
+    status.textContent = `Imported ${project.name}.`;
+    await loadProjects();
+  } catch (error) { status.textContent = error.message; }
+  finally { document.getElementById('projectImportFile').value = ''; }
+}
+
+document.getElementById('projectImportFile').addEventListener('change', event => {
+  const file = event.target.files[0];
+  if (file) importProject(file);
+});
 
 function editProject(project) {
   editingProjectId = project.id;
@@ -1117,6 +1180,24 @@ class _Handler(BaseHTTPRequestHandler):
             _write_json(self, 200, results)
             return
 
+        if path.startswith("/api/projects/") and path.endswith("/export"):
+            project_id = path.removeprefix("/api/projects/").removesuffix("/export")
+            expected_token = get_configured_scan_token()
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if expected_token is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            try:
+                payload = ProjectStore().export_configuration(project_id)
+            except KeyError:
+                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                return
+            _write_json(self, 200, payload)
+            return
+
         if path == "/api/projects":
             expected_token = get_configured_scan_token()
             provided_token = params.get("token")
@@ -1310,6 +1391,60 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path.startswith("/api/projects/") and path.endswith("/duplicate"):
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            project_id = path.removeprefix("/api/projects/").removesuffix("/duplicate")
+            try:
+                project = ProjectStore().duplicate(project_id)
+            except KeyError:
+                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                return
+            _write_json(self, 201, asdict(project))
+            return
+
+        if path == "/api/projects/import":
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(content_length) if content_length else b"")
+            except (json.JSONDecodeError, ValueError):
+                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
+                return
+            if not isinstance(body, dict):
+                _write_json(self, 400, {"code": "invalid_project", "detail": "project configuration must be an object"})
+                return
+            targets = body.get("targets")
+            if isinstance(targets, list):
+                for target in targets:
+                    if not isinstance(target, str):
+                        _write_json(self, 400, {"code": "invalid_target", "detail": "every target must be a string"})
+                        return
+                    error = validate_scan_url(target)
+                    if error is not None:
+                        _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
+                        return
+            try:
+                project = ProjectStore().import_configuration(body)
+            except ValueError as exc:
+                _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
+                return
+            _write_json(self, 201, asdict(project))
+            return
 
         if path.startswith("/api/projects/") and path.endswith("/restore"):
             params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}

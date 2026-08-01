@@ -724,3 +724,49 @@ export BROKENLINKBRIEF_HISTORY_DIR=/data/history
 ```
 
 Use persistent writable storage for both `BROKENLINKBRIEF_PROJECT_DB` and `BROKENLINKBRIEF_HISTORY_DIR` in production.
+
+### Export and import project configuration
+
+Use **Export project** to download a portable JSON configuration containing only the schema version, project name, and normalized targets. Runtime IDs, timestamps, archive state, scan history, findings, and secrets are not exported.
+
+Use **Import project** to select a supported JSON configuration. Import creates a new project identity and applies the same validation and SSRF rules as manual creation.
+
+Portable schema version 1:
+
+```json
+{
+  "schema_version": 1,
+  "name": "Main website",
+  "targets": [
+    "https://example.com/",
+    "https://example.com/docs"
+  ]
+}
+```
+
+API operations:
+
+```text
+GET  /api/projects/{project_id}/export
+POST /api/projects/import
+```
+
+### Duplicate a project
+
+Use **Duplicate** to create an active project with the same ordered target list and a new identity. This is useful when creating an environment-specific or client-specific variant without editing the source project.
+
+Copy names are allocated predictably:
+
+```text
+Main website copy
+Main website copy 2
+Main website copy 3
+```
+
+History, timestamps, archive state, findings, and other runtime state are not copied.
+
+API:
+
+```text
+POST /api/projects/{project_id}/duplicate
+```
