@@ -306,7 +306,8 @@ def _make_test_server() -> tuple[HTTPServer, int, list[dict[str, Any]]]:
 class TestWebhookDelivery:
     """Verify webhook delivery sends POST with correct headers."""
 
-    def test_delivers_payload_to_url(self) -> None:
+    @patch("brokenlinkbrief.webhook.validate_webhook_url", return_value=None)
+    def test_delivers_payload_to_url(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             url = f"http://127.0.0.1:{port}/hook"
@@ -318,7 +319,8 @@ class TestWebhookDelivery:
         finally:
             server.shutdown()
 
-    def test_delivers_with_signature_header(self) -> None:
+    @patch("brokenlinkbrief.webhook.validate_webhook_url", return_value=None)
+    def test_delivers_with_signature_header(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             url = f"http://127.0.0.1:{port}/hook"
@@ -331,7 +333,8 @@ class TestWebhookDelivery:
         finally:
             server.shutdown()
 
-    def test_content_type_is_json(self) -> None:
+    @patch("brokenlinkbrief.webhook.validate_webhook_url", return_value=None)
+    def test_content_type_is_json(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             url = f"http://127.0.0.1:{port}/hook"
@@ -350,7 +353,8 @@ class TestWebhookDelivery:
 class TestRetryLogic:
     """Verify exponential-backoff retry on delivery failure."""
 
-    def test_succeeds_on_first_attempt(self) -> None:
+    @patch("brokenlinkbrief.webhook.validate_webhook_url", return_value=None)
+    def test_succeeds_on_first_attempt(self, mock_validate) -> None:
         server, port, _ = _make_test_server()
         try:
             url = f"http://127.0.0.1:{port}/hook"
@@ -442,10 +446,11 @@ class TestRetryLogic:
 # ---------------------------------------------------------------------------
 
 
+@patch("brokenlinkbrief.webhook.validate_webhook_url", return_value=None)
 class TestTriggerWebhooks:
     """Verify trigger_webhooks fires only when broken links are found."""
 
-    def test_fires_when_broken_links_found(self) -> None:
+    def test_fires_when_broken_links_found(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             registry = WebhookRegistry()
@@ -461,7 +466,7 @@ class TestTriggerWebhooks:
         finally:
             server.shutdown()
 
-    def test_does_not_fire_when_no_broken_links(self) -> None:
+    def test_does_not_fire_when_no_broken_links(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             registry = WebhookRegistry()
@@ -476,7 +481,7 @@ class TestTriggerWebhooks:
         finally:
             server.shutdown()
 
-    def test_fires_to_multiple_webhooks(self) -> None:
+    def test_fires_to_multiple_webhooks(self, mock_validate) -> None:
         server1, port1, received1 = _make_test_server()
         server2, port2, received2 = _make_test_server()
         try:
@@ -494,7 +499,7 @@ class TestTriggerWebhooks:
             server1.shutdown()
             server2.shutdown()
 
-    def test_payload_sent_includes_hmac_when_secret_set(self) -> None:
+    def test_payload_sent_includes_hmac_when_secret_set(self, mock_validate) -> None:
         server, port, received = _make_test_server()
         try:
             secret = "test-secret-123"

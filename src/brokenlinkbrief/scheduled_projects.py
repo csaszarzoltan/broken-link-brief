@@ -2,7 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from brokenlinkbrief.scheduler import Schedule
+    from brokenlinkbrief.scan_history import ScanHistoryStore
 
 
 @dataclass(frozen=True)
@@ -20,16 +24,16 @@ class ScheduledProjectView:
 
 
 def aggregate_scheduled_projects(
-    schedules: list[Any],
+    schedules: list["Schedule"],
     projects: list[Any],
-    scan_history_store: Any | None,
+    scan_history_store: "ScanHistoryStore | None",
 ) -> list[ScheduledProjectView]:
     """Merge schedules, project metadata, and scan history into dashboard views.
 
     Args:
         schedules: List of Schedule dataclass instances.
-        projects: List of Project dataclass instances (for name lookup).
-        scan_history_store: ScanHistoryStore instance (or None).
+        projects: List of project configs (untyped, TODO: proper type).
+        scan_history_store: ScanHistoryStore instance or None.
 
     Returns:
         List of ScheduledProjectView sorted by next_due_at.
@@ -37,26 +41,8 @@ def aggregate_scheduled_projects(
     # Build project name lookup
     name_map: dict[str, str] = {}
     for p in projects:
-        # Handle both real objects and MagicMock objects
-        pid = None
-        pname = None
-        if hasattr(p, "project_id"):
-            pid_val = p.project_id
-            if isinstance(pid_val, str):
-                pid = pid_val
-        if not pid and hasattr(p, "id"):
-            id_val = p.id
-            if isinstance(id_val, str):
-                pid = id_val
-        if not pid and isinstance(p, dict):
-            pid = p.get("id")
-
-        if hasattr(p, "name"):
-            name_val = p.name
-            if isinstance(name_val, str):
-                pname = name_val
-        if not pname and isinstance(p, dict):
-            pname = p.get("name")
+        pid = getattr(p, "project_id", None) or getattr(p, "id", None)
+        pname = getattr(p, "name", None) or getattr(p, "project_name", None)
         if pid and pname:
             name_map[pid] = pname
 
