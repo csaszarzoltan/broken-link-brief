@@ -141,3 +141,17 @@
 - Repaired a malformed embedded dashboard JavaScript sequence discovered by syntax validation.
 - Added a Node.js-backed regression test that extracts the embedded script and runs `node --check` when Node.js is available.
 - Added TDD tests for change-detail payloads, deterministic ordering, expandable UI details, and export affordance.
+
+### v1.0.5 (2026-08-01)
+
+#### Faster scan-result review
+- Added All results, Needs attention, and Healthy filters to the latest scan results.
+- Added instant client-side search across URL, reason, and HTTP status.
+- Added an accessible live count showing visible and total result counts.
+- Added CSV export for the currently visible result subset.
+- Added spreadsheet-formula neutralization to the browser-generated CSV export.
+- Export is disabled when no rows are visible, and meaningful empty-search feedback is shown.
+
+#### Tests
+- Added TDD acceptance coverage for result filters, search, visible-result export, and live-count accessibility.
+- Preserved the embedded JavaScript syntax regression check.

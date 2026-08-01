@@ -618,3 +618,13 @@ The `url` parameter is required. `limit` is constrained to 1 through 50. The fir
 Expand **Change details** on any history entry to see the exact URLs that became broken or were fixed, including their current status. Change lists are sorted by URL for deterministic API responses and stable review.
 
 Select **Export history JSON** in the history dialog to download the currently displayed page history. The export contains the target URL, timeline summaries, and the newly broken/fixed link details already loaded in the browser. No additional server-side data is requested.
+
+### Filter, search, and export the latest results
+
+After a browser scan, use the result toolbar to focus on:
+
+- **All results**
+- **Needs attention**: HTTP 4xx/5xx responses and links without a response
+- **Healthy**: successful and redirect responses below HTTP 400
+
+The search field filters the displayed rows by URL, reason, or status. **Export visible CSV** downloads only the rows currently matching the selected category and search query. The browser-generated CSV neutralizes leading spreadsheet formula characters before download.

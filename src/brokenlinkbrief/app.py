@@ -292,6 +292,13 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .timeline { display:grid; gap:10px; }
   .timeline-item { border-left:4px solid #0f3460; padding:10px 12px; background:#0e1730; }
   .change-good { color:#81e6c3; } .change-bad { color:#ff9aac; }
+  .result-tools { display:flex; gap:8px; align-items:end; flex-wrap:wrap; margin-top:14px; padding-top:14px; border-top:1px solid #294066; }
+  .result-tools[hidden] { display:none; }
+  .result-tools label { display:grid; gap:4px; flex:1 1 240px; }
+  .result-tools input { width:100%; padding:8px 10px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
+  .filter-group { display:flex; gap:6px; flex-wrap:wrap; }
+  .filter-group button[aria-pressed="true"] { background:#e94560; border-color:#e94560; }
+  .result-count { flex-basis:100%; margin:0; }
 </style>
 </head>
 <body>
@@ -305,6 +312,18 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <p id="scanHelp" class="muted">Enter a public HTTP or HTTPS page. Private network targets are blocked.</p>
   </form>
   <div id="scanStatus" class="status" role="status" aria-live="polite"></div>
+  <div id="resultTools" class="result-tools" hidden>
+    <div class="filter-group" role="group" aria-label="Filter scan results">
+      <button type="button" class="secondary" data-result-filter="all" aria-pressed="true">All results</button>
+      <button type="button" class="secondary" data-result-filter="attention" aria-pressed="false">Needs attention</button>
+      <button type="button" class="secondary" data-result-filter="healthy" aria-pressed="false">Healthy</button>
+    </div>
+    <label for="resultSearch">Search results
+      <input id="resultSearch" type="search" placeholder="URL or reason" autocomplete="off">
+    </label>
+    <button type="button" id="exportResults" class="secondary">Export visible CSV</button>
+    <p id="visibleResultCount" class="muted result-count" aria-live="polite">0 results shown</p>
+  </div>
   <div id="scanResults" class="results" tabindex="-1"></div>
 </section>
 <section class="scan-panel" aria-labelledby="recentHeading">
@@ -368,6 +387,9 @@ let trendChartInstance = null;
 let severityChartInstance = null;
 let domainChartInstance = null;
 let activeHistory = {url: '', items: []};
+let latestScanResults = [];
+let visibleScanResults = [];
+let activeResultFilter = 'all';
 
 function getToken() {
   const urlParams = new URLSearchParams(window.location.search);
@@ -495,12 +517,72 @@ document.getElementById('scanForm').addEventListener('submit', async (event) => 
     if (!response.ok) throw new Error(payload.detail || 'Scan failed');
     const broken = payload.filter(item => item.status === null || item.status >= 400);
     status.textContent = `${payload.length} links checked. ${broken.length} need attention.`;
-    const rows = payload.map(item => { const failed=item.status===null||item.status>=400; const value=item.status===null?'No response':String(item.status); return `<tr><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed?'bad':'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason||'')}</td></tr>`; }).join('');
-    document.getElementById('scanResults').innerHTML = payload.length ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>No HTTP or HTTPS links were found on this page.</p>';
+    latestScanResults = payload;
+    activeResultFilter = 'all';
+    document.getElementById('resultSearch').value = '';
+    document.querySelectorAll('[data-result-filter]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.resultFilter === 'all'));
+    });
+    document.getElementById('resultTools').hidden = payload.length === 0;
+    applyResultView();
     document.getElementById('scanResults').focus(); await Promise.all([loadAll(), loadRecentTargets()]);
   } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
   finally { button.disabled = false; }
 });
+function needsAttention(item) {
+  return item.status === null || item.status >= 400;
+}
+
+function applyResultView() {
+  const query = document.getElementById('resultSearch').value.trim().toLowerCase();
+  visibleScanResults = latestScanResults.filter(item => {
+    const attention = needsAttention(item);
+    const categoryMatches = activeResultFilter === 'all'
+      || (activeResultFilter === 'attention' && attention)
+      || (activeResultFilter === 'healthy' && !attention);
+    const text = `${item.url} ${item.reason || ''} ${item.status ?? ''}`.toLowerCase();
+    return categoryMatches && (!query || text.includes(query));
+  });
+  const rows = visibleScanResults.map(item => {
+    const failed = needsAttention(item);
+    const value = item.status === null ? 'No response' : String(item.status);
+    return `<tr><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed ? 'bad' : 'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason || '')}</td></tr>`;
+  }).join('');
+  document.getElementById('visibleResultCount').textContent = `${visibleScanResults.length} of ${latestScanResults.length} results shown`;
+  document.getElementById('exportResults').disabled = visibleScanResults.length === 0;
+  document.getElementById('scanResults').innerHTML = visibleScanResults.length
+    ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<p>No results match the selected filter and search.</p>';
+}
+
+function escapeCsvCell(value) {
+  let text = value === null || value === undefined ? '' : String(value);
+  if (/^[=+@\t\r-]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportVisibleResults() {
+  if (!visibleScanResults.length) return;
+  const rows = [['url', 'status', 'reason', 'location'], ...visibleScanResults.map(item => [item.url, item.status, item.reason, item.location])];
+  const csv = rows.map(row => row.map(escapeCsvCell).join(',')).join('\n') + '\n';
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'brokenlinkbrief-visible-results.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+document.querySelectorAll('[data-result-filter]').forEach(button => {
+  button.addEventListener('click', () => {
+    activeResultFilter = button.dataset.resultFilter;
+    document.querySelectorAll('[data-result-filter]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+    applyResultView();
+  });
+});
+document.getElementById('resultSearch').addEventListener('input', applyResultView);
+document.getElementById('exportResults').addEventListener('click', exportVisibleResults);
+
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function loadAll() {

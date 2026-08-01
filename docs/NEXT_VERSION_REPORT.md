@@ -142,3 +142,24 @@ This increment moves the history view from counts to action. Users can expand a 
 - Added native `<details>` sections for progressive disclosure.
 - Added a browser-side Blob download for the active history payload.
 - Added JavaScript syntax regression coverage after detecting and repairing a malformed function boundary from the preceding incremental edit.
+
+## 10. Continued increment: 1.0.5 faster result review
+
+This increment improves the most immediate post-scan workflow. Users can now reduce a potentially long result set to links needing attention, search within the scan, and export only the visible subset for focused handoff.
+
+### Requirements added
+
+- **UR-RESULT-01, Must:** A user can switch between all, attention-needed, and healthy scan results without rescanning.
+- **UR-RESULT-02, Must:** A user can search the latest result set by URL, reason, or HTTP status.
+- **UX-RESULT-01, Must:** Filter state is communicated with `aria-pressed`, and visible-result counts are announced with a live region.
+- **UX-RESULT-02, Must:** A zero-match state explains why no table is shown.
+- **DI-RESULT-01, Should:** A user can export only the currently visible result subset as CSV.
+- **SEC-RESULT-01, Must:** Client-generated CSV values neutralize spreadsheet formula triggers.
+- **QA-RESULT-01, Must:** Filter, search, export, and accessibility contracts have automated acceptance coverage.
+
+### Implementation
+
+- Added an initially hidden result toolbar that appears after a non-empty scan.
+- Added in-memory view state for the latest and currently visible results.
+- Added client-side filtering and search without repeated API requests.
+- Added a focused CSV download using the visible rows and the existing result schema.
