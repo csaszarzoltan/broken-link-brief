@@ -257,6 +257,11 @@ class SlackNotifier:
     """
 
     def __init__(self, webhook_url: str) -> None:
+        from brokenlinkbrief.webhook import validate_webhook_url
+
+        error = validate_webhook_url(webhook_url)
+        if error:
+            raise ValueError(f"Invalid Slack webhook URL: {error}")
         self._webhook_url = webhook_url
 
     def send(self, message: str) -> bool:
