@@ -78,7 +78,7 @@ class ScanHistoryStore:
         ).fetchone()
         if row is None:
             return None
-        return ScanRecord(**{k: row[k] for k in row.keys()})
+        return ScanRecord(**{k: row[k] for k in row})
 
     def get_scan_history(
         self, project_id: str, limit: int = 50, offset: int = 0
@@ -89,7 +89,7 @@ class ScanHistoryStore:
             ORDER BY scan_timestamp DESC LIMIT ? OFFSET ?""",
             (project_id, limit, offset),
         ).fetchall()
-        return [ScanRecord(**{k: r[k] for k in r.keys()}) for r in rows]
+        return [ScanRecord(**{k: r[k] for k in r}) for r in rows]
 
     def update_regression_flags(self, scan_id: str, flags: list[str]) -> None:
         """Update regression flags for a scan."""

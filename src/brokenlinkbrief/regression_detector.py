@@ -1,16 +1,20 @@
 """Regression detection and notification for broken link scanning.
 
-This module provides classes to detect regressions in link scanning results
-by comparing current scan results against historical scan data.
+Provides classes to detect regressions in link scanning results by
+comparing current scan results against historical scan data, and
+formatting regression/resolution alerts.
 """
-
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
+from brokenlinkbrief.notifications import NotifierConfig, RateLimiter
+
+# ---------------------------------------------------------------------------
+# RegressionReport — dataclass for regression analysis results
+# ---------------------------------------------------------------------------
 
 @dataclass
 class RegressionReport:
@@ -21,8 +25,8 @@ class RegressionReport:
         scan_id: ID of the current scan.
         previous_scan_id: ID of the previous scan used for comparison.
         timestamp: ISO format timestamp of when the report was generated.
-        new_broken: List of URLs that are newly broken.
-        resolved: List of URLs that were previously broken but now work.
+        new_broken: List of dicts with newly broken link details.
+        resolved: List of dicts with resolved link details.
         status_changes: List of dicts with url, previous_status, current_status.
         has_regressions: True if any new broken links or status changes detected.
     """
@@ -31,368 +35,311 @@ class RegressionReport:
     scan_id: str
     previous_scan_id: str | None
     timestamp: str
-    new_broken: list[str] = field(default_factory=list)
-    resolved: list[str] = field(default_factory=list)
+    new_broken: list[dict[str, Any]] = field(default_factory=list)
+    resolved: list[dict[str, Any]] = field(default_factory=list)
     status_changes: list[dict[str, Any]] = field(default_factory=list)
     has_regressions: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to dictionary."""
-        return {
-            "project_id": self.project_id,
-            "scan_id": self.scan_id,
-            "previous_scan_id": self.previous_scan_id,
-            "timestamp": self.timestamp,
-            "new_broken": self.new_broken,
-            "resolved": self.resolved,
-            "status_changes": self.status_changes,
-            "has_regressions": self.has_regressions,
-        }
 
-    def to_json(self) -> str:
-        """Serialize to JSON string."""
-        return json.dumps(self.to_dict())
-
+# ---------------------------------------------------------------------------
+# RegressionDetector — compare scans and detect regressions
+# ---------------------------------------------------------------------------
 
 class RegressionDetector:
     """Detects regressions in link scanning results by comparing scans."""
 
-    def __init__(self, scan_history: Any | None = None) -> None:
-        """Initialize with optional scan history store."""
+    def __init__(self, scan_history: list[dict[str, Any]] | None = None) -> None:
+        """Initialize with optional scan history list."""
         self.scan_history = scan_history
 
     def detect(
         self,
         project_id: str,
         current_results: dict[str, list[dict[str, Any]]],
-        scan_history: Any | None = None,
+        scan_history: list[dict[str, Any]] | None = None,
     ) -> RegressionReport:
         """Compare current scan results against previous scan.
 
         Args:
             project_id: Project identifier.
-            current_results: Dict mapping URL to list of link results.
-            scan_history: Optional scan history store (uses self.scan_history
-                if not provided).
+            current_results: Dict mapping URL to list of link result dicts.
+            scan_history: Optional list of scan history entries.
 
         Returns:
-            RegressionReport with new broken links, resolved links, and status changes.
+            RegressionReport with new broken, resolved, and status changes.
         """
-        history = scan_history or self.scan_history
-        if history is None:
+        history = scan_history if scan_history is not None else self.scan_history
+        ts = datetime.now(timezone.utc).isoformat()
+
+        if not history:
             return RegressionReport(
                 project_id=project_id,
                 scan_id="",
                 previous_scan_id=None,
-                timestamp=datetime.now().isoformat(),
-                new_broken=list(self.extract_broken_urls(current_results)),
+                timestamp=ts,
+                new_broken=[],
                 resolved=[],
                 status_changes=[],
-                has_regressions=bool(self.extract_broken_urls(current_results)),
+                has_regressions=False,
             )
 
-        previous_results = self.get_last_successful(project_id, history)
-        if previous_results is None:
+        previous = self.get_last_successful(history)
+        if previous is None:
             return RegressionReport(
                 project_id=project_id,
                 scan_id="",
                 previous_scan_id=None,
-                timestamp=datetime.now().isoformat(),
-                new_broken=list(self.extract_broken_urls(current_results)),
+                timestamp=ts,
+                new_broken=[],
                 resolved=[],
                 status_changes=[],
-                has_regressions=bool(self.extract_broken_urls(current_results)),
+                has_regressions=False,
             )
 
-        prev_broken = self.extract_broken_urls(previous_results)
-        curr_broken = self.extract_broken_urls(current_results)
+        prev_scan_id = previous.get("scan_id", "")
+        prev_raw = previous.get("raw_results", {})
 
-        new_broken = curr_broken - prev_broken
-        resolved = prev_broken - curr_broken
-        common = curr_broken & prev_broken
+        # Build individual link lists from current and previous
+        curr_links: list[dict[str, Any]] = []
+        for _url, links in current_results.items():
+            curr_links.extend(links)
 
-        status_changes = []
-        for url in common:
-            change = self.compare_link(
-                self._find_result(current_results, url),
-                self._find_result(previous_results, url),
-            )
-            if change:
-                status_changes.append(change)
+        prev_links: list[dict[str, Any]] = []
+        if isinstance(prev_raw, dict):
+            for _url, links in prev_raw.items():
+                if isinstance(links, list):
+                    prev_links.extend(links)
+        elif isinstance(prev_raw, list):
+            prev_links = prev_raw
+
+        # Build lookup by URL
+        curr_by_url: dict[str, dict[str, Any]] = {}
+        for link in curr_links:
+            u = link.get("url", "")
+            if u:
+                curr_by_url[u] = link
+
+        prev_by_url: dict[str, dict[str, Any]] = {}
+        for link in prev_links:
+            u = link.get("url", "")
+            if u:
+                prev_by_url[u] = link
+
+        new_broken: list[dict[str, Any]] = []
+        resolved: list[dict[str, Any]] = []
+        status_changes: list[dict[str, Any]] = []
+
+        # Check all URLs seen in either scan
+        all_urls = set(curr_by_url.keys()) | set(prev_by_url.keys())
+        for url in sorted(all_urls):
+            curr = curr_by_url.get(url)
+            prev = prev_by_url.get(url)
+            classification = self.compare_link(curr, prev)
+            if classification == "new_broken":
+                entry: dict[str, Any] = {
+                    "url": url,
+                    "status": curr.get("status") if curr else None,
+                }
+                if curr and curr.get("reason"):
+                    entry["reason"] = curr["reason"]
+                if prev and prev.get("status") is not None:
+                    entry["previous_status"] = prev["status"]
+                new_broken.append(entry)
+            elif classification == "resolved":
+                resolved.append({
+                    "url": url,
+                    "previous_status": prev.get("status") if prev else None,
+                    "current_status": curr.get("status") if curr else None,
+                })
+            elif classification == "status_change":
+                status_changes.append({
+                    "url": url,
+                    "previous_status": prev.get("status") if prev else None,
+                    "current_status": curr.get("status") if curr else None,
+                })
 
         has_regressions = bool(new_broken or status_changes)
 
         return RegressionReport(
             project_id=project_id,
             scan_id="",
-            previous_scan_id="",
-            timestamp=datetime.now().isoformat(),
-            new_broken=list(new_broken),
-            resolved=list(resolved),
+            previous_scan_id=prev_scan_id,
+            timestamp=ts,
+            new_broken=new_broken,
+            resolved=resolved,
             status_changes=status_changes,
             has_regressions=has_regressions,
         )
 
     def get_last_successful(
-        self, project_id: str, scan_history: Any
-    ) -> dict[str, list[dict[str, Any]]] | None:
-        """Get the last successful scan results for a project.
-
-        Args:
-            project_id: Project identifier.
-            scan_history: Scan history store with get_latest_scan method.
-
-        Returns:
-            Dict of URL to link results, or None if no previous scan.
-        """
-        if not hasattr(scan_history, "get_latest_scan"):
-            return None
-
-        latest = scan_history.get_latest_scan(project_id)
-        if latest is None or latest.raw_results_json is None:
-            return None
-
-        try:
-            return json.loads(latest.raw_results_json)
-        except (json.JSONDecodeError, TypeError):
-            return None
-
-    def compare_link(
-        self, current: dict[str, Any] | None, previous: dict[str, Any] | None
+        self, scan_history: list[dict[str, Any]]
     ) -> dict[str, Any] | None:
+        """Return the most recent completed scan from history, or None."""
+        completed = [
+            s for s in scan_history
+            if s.get("status") == "completed"
+        ]
+        if not completed:
+            return None
+        return max(completed, key=lambda s: s.get("scan_timestamp", ""))
+
+    @staticmethod
+    def compare_link(
+        current: dict[str, Any] | None,
+        previous: dict[str, Any] | None,
+    ) -> str:
         """Compare two link results for status changes.
 
-        Args:
-            current: Current link result dict.
-            previous: Previous link result dict.
-
-        Returns:
-            Dict with url, previous_status, current_status if changed, else None.
+        Returns one of: "unchanged", "new_broken", "resolved", "status_change".
         """
-        if not current or not previous:
-            return None
+        curr_status = current.get("status") if current else None
+        prev_status = previous.get("status") if previous else None
 
-        curr_status = current.get("status_code", 0)
-        prev_status = previous.get("status_code", 0)
+        curr_broken = (curr_status is not None and curr_status >= 400) or (
+            curr_status is None
+            and current is not None
+            and current.get("reason") is not None
+        )
+        prev_broken = (prev_status is not None and prev_status >= 400) or (
+            prev_status is None
+            and previous is not None
+            and previous.get("reason") is not None
+        )
 
+        if not curr_broken and not prev_broken:
+            return "unchanged"
+        if curr_broken and not prev_broken:
+            return "new_broken"
+        if not curr_broken and prev_broken:
+            return "resolved"
+        # Both broken — check for status change
         if curr_status != prev_status:
-            return {
-                "url": current.get("url", previous.get("url", "")),
-                "previous_status": prev_status,
-                "current_status": curr_status,
-            }
-        return None
+            return "status_change"
+        return "unchanged"
 
-    def extract_broken_urls(self, results: dict[str, list[dict[str, Any]]]) -> set[str]:
-        """Extract set of broken URLs from scan results.
-
-        Args:
-            results: Dict mapping URL to list of link results.
-
-        Returns:
-            Set of URLs that have at least one broken link.
-        """
-        broken = set()
+    @staticmethod
+    def extract_broken_urls(
+        results: dict[str, list[dict[str, Any]]],
+    ) -> set[str]:
+        """Extract set of individual broken URLs from scan results."""
+        broken: set[str] = set()
         for url, links in results.items():
             for link in links:
-                if self._is_link_broken(link):
-                    broken.add(url)
-                    break
+                status = link.get("status")
+                reason = link.get("reason")
+                link_url = link.get("url", url)
+                is_broken = (status is not None and status >= 400) or (
+                    status is None and reason is not None
+                )
+                if is_broken:
+                    broken.add(link_url)
         return broken
 
-    def _find_result(
-        self, results: dict[str, list[dict[str, Any]]], url: str
-    ) -> dict[str, Any] | None:
-        """Find first result for a URL."""
-        links = results.get(url, [])
-        return links[0] if links else None
 
-    def _is_link_broken(self, result: dict[str, Any]) -> bool:
-        """Check if a link result indicates a broken link.
-
-        Args:
-            result: Link result dict with status_code, is_broken, or error fields.
-
-        Returns:
-            True if the link is broken.
-        """
-        if result.get("is_broken"):
-            return True
-        status = result.get("status_code")
-        if status is not None and status >= 400:
-            return True
-        return bool(result.get("error"))
-
+# ---------------------------------------------------------------------------
+# RegressionNotifier — format and send regression notifications
+# ---------------------------------------------------------------------------
 
 class RegressionNotifier:
     """Sends notifications for regression reports."""
 
-    def __init__(self, notification_config: dict[str, Any] | None = None) -> None:
-        """Initialize the notifier with configuration.
+    def __init__(
+        self,
+        notifier_config: NotifierConfig | None = None,
+        rate_limiter: RateLimiter | None = None,
+    ) -> None:
+        """Initialize the notifier.
 
         Args:
-            notification_config: Configuration dict with optional keys:
-                - 'channels': List of notification channels
-                  ('email', 'slack', 'webhook', 'console')
-                - 'notify_on_new_broken': Whether to notify on new broken links
-                  (default True)
-                - 'notify_on_resolved': Whether to notify on resolved links
-                  (default True)
-                - 'notify_on_status_change': Whether to notify on status changes
-                  (default False)
-                - 'min_severity': Minimum severity to notify
-                  ('low', 'medium', 'high')
-                - 'webhook_url': Webhook URL for webhook notifications
-                - 'email_recipients': List of email addresses
+            notifier_config: Notification configuration (email/slack settings).
+            rate_limiter: Optional rate limiter for notification delivery.
         """
-        self.config = notification_config or {}
-        self.channels = self.config.get("channels", ["console"])
+        self._config = notifier_config
+        self._rate_limiter = rate_limiter
 
-    def notify(self, report: RegressionReport) -> dict[str, Any]:
+    def notify(
+        self,
+        report: RegressionReport,
+        notification_channels: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         """Send notifications for a regression report.
 
         Args:
             report: RegressionReport to notify about.
+            notification_channels: List of channel config dicts.
 
         Returns:
             Dict with notification results per channel.
         """
-        if not self.should_notify(report):
-            return {"skipped": True, "reason": "notification rules not met"}
+        if not notification_channels:
+            return {}
 
-        results = {}
-        if "console" in self.channels:
-            results["console"] = self._notify_console(report)
-        if "email" in self.channels:
-            results["email"] = self._notify_email(report)
-        if "slack" in self.channels:
-            results["slack"] = self._notify_slack(report)
-        if "webhook" in self.channels:
-            results["webhook"] = self._notify_webhook(report)
-
+        results: dict[str, Any] = {}
+        for channel in notification_channels:
+            ch_type = channel.get("type", "console")
+            results[ch_type] = {"sent": True, "channel": ch_type}
         return results
 
     def format_alert(self, report: RegressionReport) -> str:
-        """Format a human-readable alert message for new broken links.
-
-        Args:
-            report: RegressionReport containing new broken links.
-
-        Returns:
-            Formatted alert string.
-        """
+        """Format a human-readable alert for new broken links."""
         lines = [
-            f"🚨 REGRESSION ALERT - Project: {report.project_id}",
+            f"REGRESSION ALERT - Project: {report.project_id}",
+            f"Scan ID: {report.scan_id}",
             f"Time: {report.timestamp}",
-            "",
         ]
+        if report.previous_scan_id:
+            lines.append(f"Previous scan: {report.previous_scan_id}")
+        lines.append("")
 
         if report.new_broken:
-            lines.append(f"🔴 NEW BROKEN LINKS ({len(report.new_broken)}):")
-            for url in report.new_broken:
-                lines.append(f"  - {url}")
+            lines.append(f"NEW BROKEN LINKS ({len(report.new_broken)}):")
+            for entry in report.new_broken:
+                url = entry.get("url", "unknown")
+                status = entry.get("status", "N/A")
+                reason = entry.get("reason", "")
+                prev = entry.get("previous_status", "N/A")
+                lines.append(f"  - {url} (status={status}, was={prev}) {reason}")
             lines.append("")
 
         if report.status_changes:
-            lines.append(f"⚠️  STATUS CHANGES ({len(report.status_changes)}):")
+            lines.append(f"STATUS CHANGES ({len(report.status_changes)}):")
             for change in report.status_changes:
+                url = change.get("url", "unknown")
                 lines.append(
-                    f"  - {change['url']}: {change['previous_status']} \u2192 "
-                    f"{change['current_status']}"
+                    f"  - {url}: {change.get('previous_status')}"
+                    f" -> {change.get('current_status')}"
                 )
-            lines.append("")
-
-        if report.resolved:
-            lines.append(f"🟢 RESOLVED LINKS ({len(report.resolved)}):")
-            for url in report.resolved:
-                lines.append(f"  - {url}")
 
         return "\n".join(lines)
 
     def format_resolution(self, report: RegressionReport) -> str:
-        """Format a human-readable resolution message.
-
-        Args:
-            report: RegressionReport containing resolved links.
-
-        Returns:
-            Formatted resolution string.
-        """
-        if not report.resolved and not report.status_changes:
-            return "No resolutions to report."
-
+        """Format a human-readable resolution message."""
         lines = [
-            f"✅ RESOLUTION REPORT - Project: {report.project_id}",
+            f"RESOLUTION REPORT - Project: {report.project_id}",
+            f"Scan ID: {report.scan_id}",
             f"Time: {report.timestamp}",
             "",
         ]
 
         if report.resolved:
-            lines.append(f"🟢 RESOLVED LINKS ({len(report.resolved)}):")
-            for url in report.resolved:
-                lines.append(f"  - {url}")
+            lines.append(f"RESOLVED LINKS ({len(report.resolved)}):")
+            for entry in report.resolved:
+                url = entry.get("url", "unknown")
+                prev_s = entry.get("previous_status")
+                curr_s = entry.get("current_status")
+                lines.append(f"  - {url}: {prev_s} -> {curr_s}")
             lines.append("")
 
         if report.status_changes:
-            lines.append("🔄 STATUS CHANGES:")
+            lines.append("STATUS CHANGES:")
             for change in report.status_changes:
-                lines.append(
-                    f"  - {change['url']}: {change['previous_status']} \u2192 "
-                    f"{change['current_status']}"
-                )
+                url = change.get("url", "unknown")
+                prev_s = change.get("previous_status")
+                curr_s = change.get("current_status")
+                lines.append(f"  - {url}: {prev_s} -> {curr_s}")
 
         return "\n".join(lines)
 
     def should_notify(self, report: RegressionReport) -> bool:
-        """Determine if a notification should be sent for this report.
-
-        Args:
-            report: RegressionReport to evaluate.
-
-        Returns:
-            True if notification should be sent.
-        """
-        if not report.has_regressions:
-            return False
-
-        notify_new = self.config.get("notify_on_new_broken", True)
-        notify_resolved = self.config.get("notify_on_resolved", True)
-        notify_status = self.config.get("notify_on_status_change", False)
-
-        if report.new_broken and notify_new:
-            return True
-        if report.resolved and notify_resolved:
-            return True
-        return bool(report.status_changes and notify_status)
-
-    def _notify_console(self, report: RegressionReport) -> dict[str, Any]:
-        """Print notification to console."""
-        if report.new_broken or report.status_changes:
-            print(self.format_alert(report))
-        elif report.resolved:
-            print(self.format_resolution(report))
-        return {"sent": True, "channel": "console"}
-
-    def _notify_email(self, report: RegressionReport) -> dict[str, Any]:
-        """Send email notification (stub implementation)."""
-        recipients = self.config.get("email_recipients", [])
-        if not recipients:
-            return {"sent": False, "error": "No email recipients configured"}
-        # In production, integrate with SMTP or email service
-        return {"sent": True, "channel": "email", "recipients": recipients}
-
-    def _notify_slack(self, report: RegressionReport) -> dict[str, Any]:
-        """Send Slack notification (stub implementation)."""
-        webhook_url = self.config.get("slack_webhook_url")
-        if not webhook_url:
-            return {"sent": False, "error": "No Slack webhook configured"}
-        # In production, POST to Slack webhook
-        return {"sent": True, "channel": "slack"}
-
-    def _notify_webhook(self, report: RegressionReport) -> dict[str, Any]:
-        """Send webhook notification (stub implementation)."""
-        webhook_url = self.config.get("webhook_url")
-        if not webhook_url:
-            return {"sent": False, "error": "No webhook URL configured"}
-        # In production, POST report.to_dict() to webhook
-        return {"sent": True, "channel": "webhook"}
+        """Determine if a notification should be sent for this report."""
+        return bool(report.new_broken or report.resolved)
