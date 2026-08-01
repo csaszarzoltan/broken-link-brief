@@ -564,3 +564,21 @@ $env:PYTHONPATH="src"
 python -m pytest -q tests/test_product_features.py
 python -m compileall -q src tests
 ```
+
+## Browser scan workflow
+
+The dashboard is now an operational entry point as well as an analytics view. Open `/dashboard`, enter a public HTTP or HTTPS page in **Scan a page**, and select **Run scan**. The page announces progress, renders an accessible results table, moves keyboard focus to the results, and refreshes the dashboard metrics after completion.
+
+Safety and behavior notes:
+
+- Single scans and batch scans apply SSRF validation before fetching a target.
+- Private, loopback, link-local, metadata, multicast, and reserved destinations are rejected.
+- The selected 7/30/90/all-time range now applies consistently to summary cards and charts.
+- If token authentication is enabled, prefer an `Authorization: Bearer` header for API calls. Query tokens remain supported for backward compatibility with the self-contained dashboard, but may appear in browser history or access logs.
+
+### Validate the release
+
+```bash
+python -m pytest -q
+ruff check src tests
+```

@@ -14,6 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
+from brokenlinkbrief import __version__
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
     HistoryStore,
@@ -155,19 +156,15 @@ def run_health_checks() -> HealthResponse:
     ]
 
     # Determine overall status
-    unhealthy_count = sum(1 for c in checks if c.status == "unhealthy")
-    degraded_count = sum(1 for c in checks if c.status == "degraded")
-
-    if unhealthy_count > 0:
-        overall_status = "unhealthy"
-    elif degraded_count > 0:
-        overall_status = "degraded"
-    else:
-        overall_status = "healthy"
+    # /health is a liveness signal for deployment platforms. External HTTP and
+    # DNS are diagnostic dependencies, not reasons to restart an otherwise
+    # healthy service. Local state accessibility remains the critical check.
+    history_check = next(c for c in checks if c.name == "history_store")
+    overall_status = "healthy" if history_check.status == "healthy" else "unhealthy"
 
     return HealthResponse(
         status=overall_status,
-        version="0.7.0",
+        version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         checks=checks,
     )
@@ -265,11 +262,38 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   }
   .loading { text-align: center; padding: 40px; color: #8892b0; }
   .error { text-align: center; padding: 20px; color: #e94560; }
+  .skip-link { position:absolute; left:-9999px; top:8px; background:#fff; color:#111; padding:8px; z-index:10; }
+  .skip-link:focus { left:8px; }
+  .scan-panel { background:#16213e; border:1px solid #0f3460; border-radius:10px; padding:20px; margin-bottom:24px; }
+  .scan-panel h2 { font-size:1.1rem; margin-bottom:12px; }
+  .scan-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .scan-row input { flex:1 1 360px; min-width:0; padding:10px 12px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
+  .primary { border:0; border-radius:6px; padding:10px 18px; background:#e94560; color:#fff; font-weight:700; cursor:pointer; }
+  .primary:disabled { opacity:.6; cursor:wait; }
+  .status { min-height:1.5rem; margin-top:10px; color:#b8c2dd; }
+  .results { margin-top:14px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.875rem; }
+  th, td { text-align:left; padding:9px; border-bottom:1px solid #294066; }
+  th { color:#b8c2dd; }
+  .badge { display:inline-block; border-radius:999px; padding:2px 8px; font-weight:700; }
+  .badge.bad { background:#5d2030; color:#ffd7df; } .badge.good { background:#164a3c; color:#d4ffef; }
+  .muted { color:#8892b0; }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#scanResults">Skip to results</a>
 <h1>BrokenLinkBrief Dashboard</h1>
-<div class="filters">
+<section class="scan-panel" aria-labelledby="scanHeading">
+  <h2 id="scanHeading">Scan a page</h2>
+  <form id="scanForm">
+    <label for="scanUrl">Page URL</label>
+    <div class="scan-row"><input id="scanUrl" name="url" type="url" inputmode="url" required placeholder="https://example.com" autocomplete="url" aria-describedby="scanHelp scanStatus"><button class="primary" id="scanButton" type="submit">Run scan</button></div>
+    <p id="scanHelp" class="muted">Enter a public HTTP or HTTPS page. Private network targets are blocked.</p>
+  </form>
+  <div id="scanStatus" class="status" role="status" aria-live="polite"></div>
+  <div id="scanResults" class="results" tabindex="-1"></div>
+</section>
+<div class="filters" aria-label="Dashboard date range">
   <button onclick="setDays(7)" class="active" id="d7">7 days</button>
   <button onclick="setDays(30)" id="d30">30 days</button>
   <button onclick="setDays(90)" id="d90">90 days</button>
@@ -327,7 +351,30 @@ async function setDays(days) {
   );
   const btn = document.getElementById(`d${days}`);
   if (btn) btn.classList.add('active');
-  await loadAll();
+  await document.getElementById('scanForm').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const input = document.getElementById('scanUrl');
+  const button = document.getElementById('scanButton');
+  const status = document.getElementById('scanStatus');
+  if (!input.reportValidity()) return;
+  button.disabled = true; status.textContent = 'Scanning. This may take a moment…';
+  const query = new URLSearchParams({url: input.value.trim()});
+  const token = new URLSearchParams(window.location.search).get('token');
+  if (token) query.set('token', token);
+  try {
+    const response = await fetch(`/scan?${query}`); const payload = await response.json();
+    if (!response.ok) throw new Error(payload.detail || 'Scan failed');
+    const broken = payload.filter(item => item.status === null || item.status >= 400);
+    status.textContent = `${payload.length} links checked. ${broken.length} need attention.`;
+    const rows = payload.map(item => { const failed=item.status===null||item.status>=400; const value=item.status===null?'No response':String(item.status); return `<tr><td>${escapeHtml(item.url)}</td><td><span class="badge ${failed?'bad':'good'}">${escapeHtml(value)}</span></td><td>${escapeHtml(item.reason||'')}</td></tr>`; }).join('');
+    document.getElementById('scanResults').innerHTML = payload.length ? `<table><caption>Latest scan results</caption><thead><tr><th scope="col">Link</th><th scope="col">Status</th><th scope="col">Reason</th></tr></thead><tbody>${rows}</tbody></table>` : '<p>No HTTP or HTTPS links were found on this page.</p>';
+    document.getElementById('scanResults').focus(); await loadAll();
+  } catch (error) { status.textContent = `Unable to scan: ${error.message}`; }
+  finally { button.disabled = false; }
+});
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+loadAll();
 }
 
 async function loadAll() {
@@ -493,6 +540,14 @@ class _Handler(BaseHTTPRequestHandler):
                 _write_json(self, 400, {"detail": "missing url query parameter"})
                 return
 
+            validation_error = validate_scan_url(target_url)
+            if validation_error is not None:
+                _write_json(self, 400, {
+                    "code": "unsafe_target",
+                    "detail": f"Target URL is not allowed: {validation_error}",
+                })
+                return
+
             start = time.perf_counter()
             scan_results = scan_page(target_url)
             latency = time.perf_counter() - start
@@ -592,7 +647,15 @@ class _Handler(BaseHTTPRequestHandler):
             subpath = path[len("/api/dashboard/"):]
 
             if subpath == "summary":
-                result = store.get_dashboard_summary()
+                try:
+                    days = max(0, int(params.get("days", "7")))
+                except (ValueError, TypeError):
+                    days = 7
+                since = None
+                if days:
+                    from datetime import timedelta
+                    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+                result = store.get_dashboard_summary(since=since)
                 _write_json(self, 200, result)
                 return
 

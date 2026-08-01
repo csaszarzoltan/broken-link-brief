@@ -88,3 +88,19 @@
 #### Quality
 - Added isolated tests for all six product capabilities, including negative and security cases.
 - Preserved the existing HTTP and export contracts.
+
+### v1.0.1 (2026-08-01)
+
+#### User experience
+- Added an accessible browser-based single-page scan workflow to the monitoring dashboard.
+- Added responsive results table, progress feedback, empty/error states, keyboard focus management, and skip navigation.
+- Dashboard refreshes analytics after a successful scan.
+
+#### Correctness and security
+- Applied SSRF target validation to single scans, matching batch behavior.
+- Fixed dashboard summary cards so the selected date range is applied consistently.
+- Health metadata now reports the installed package version.
+- Deployment health now treats external network diagnostics as informational rather than restart-triggering dependencies.
+
+#### Tests
+- Added acceptance coverage for the dashboard workflow, accessibility semantics, target validation, date filtering, and version consistency.

@@ -61,7 +61,8 @@ def test_health_endpoint_returns_ok(server: str) -> None:
         data = json.loads(e.read())
         assert data["status"] in ("degraded", "unhealthy")
 
-    assert data["version"] == "0.7.0"
+    from brokenlinkbrief import __version__
+    assert data["version"] == __version__
     assert "timestamp" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
