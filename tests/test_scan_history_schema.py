@@ -410,3 +410,107 @@ class TestScanHistoryStore:
             pytest.skip("Not implemented yet — RED phase")
         assert isinstance(h, str)
         assert len(h) == 64
+
+
+# ---------------------------------------------------------------------------
+# Layer 4 — Regression: sqlite3.Row iteration bug (t_8c0140a8)
+# ---------------------------------------------------------------------------
+class TestScanHistoryRegression:
+    """Regression tests for the sqlite3.Row iteration bug fix.
+
+    The original code did `for k in row` which iterates VALUES (not column
+    names) on sqlite3.Row, causing IndexError on any non-empty result.
+    Fix: `for k in row.keys()`.
+    """
+
+    def _make_store(self, tmp_path: Path) -> tuple[ScanHistoryStore, sqlite3.Connection]:
+        db = sqlite3.connect(str(tmp_path / "test.db"))
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute("""
+            CREATE TABLE projects (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                archived INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                pinned INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        db.execute("""
+            CREATE TABLE scan_history (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                scan_timestamp TEXT NOT NULL,
+                total_urls INTEGER NOT NULL,
+                total_links INTEGER NOT NULL,
+                broken_count INTEGER NOT NULL,
+                new_broken_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'completed',
+                raw_results_json TEXT,
+                last_known_good_hash TEXT,
+                regression_flags TEXT,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+        """)
+        db.execute(
+            "INSERT INTO projects (id, name, archived, created_at, updated_at, pinned) VALUES (?, ?, ?, ?, ?, ?)",
+            ("proj1", "Test", 0, "2026-08-01T00:00:00", "2026-08-01T00:00:00", 0),
+        )
+        db.commit()
+        return ScanHistoryStore(db), db
+
+    def test_record_and_get_latest(self, tmp_path: Path) -> None:
+        """Insert a scan record and retrieve it via get_latest_scan — all fields match."""
+        store, db = self._make_store(tmp_path)
+        rec = store.record_scan(
+            project_id="proj1",
+            total_urls=10,
+            total_links=50,
+            broken_count=5,
+        )
+        latest = store.get_latest_scan("proj1")
+        assert latest is not None
+        assert latest.id == rec.id
+        assert latest.project_id == "proj1"
+        assert latest.total_urls == 10
+        assert latest.total_links == 50
+        assert latest.broken_count == 5
+        assert latest.new_broken_count == 0
+        assert latest.status == "completed"
+
+    def test_record_and_get_history(self, tmp_path: Path) -> None:
+        """Insert a scan record and retrieve it via get_scan_history."""
+        store, db = self._make_store(tmp_path)
+        rec = store.record_scan(
+            project_id="proj1",
+            total_urls=20,
+            total_links=100,
+            broken_count=10,
+        )
+        history = store.get_scan_history("proj1", limit=50, offset=0)
+        assert len(history) >= 1
+        ids = [r.id for r in history]
+        assert rec.id in ids
+
+    def test_multiple_records_ordering(self, tmp_path: Path) -> None:
+        """Multiple records returned in most-recent-first order."""
+        store, db = self._make_store(tmp_path)
+        rec1 = store.record_scan(
+            project_id="proj1",
+            total_urls=10,
+            total_links=50,
+            broken_count=1,
+        )
+        rec2 = store.record_scan(
+            project_id="proj1",
+            total_urls=20,
+            total_links=100,
+            broken_count=2,
+        )
+        history = store.get_scan_history("proj1", limit=50, offset=0)
+        assert len(history) >= 2
+        # Most recent first: rec2 (inserted second) should come before rec1
+        idx_rec2 = next(i for i, r in enumerate(history) if r.id == rec2.id)
+        idx_rec1 = next(i for i, r in enumerate(history) if r.id == rec1.id)
+        assert idx_rec2 < idx_rec1
