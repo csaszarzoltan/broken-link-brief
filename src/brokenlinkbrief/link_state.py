@@ -81,8 +81,13 @@ class LinkStateStore:
             ).fetchone()
 
             if existing is not None:
-                rec_id = existing["id"]
-                prev_status = existing["status"]
+                # Handle both sqlite3.Row and tuple
+                if hasattr(existing, "keys"):
+                    rec_id = existing["id"]
+                    prev_status = existing["status"]
+                else:
+                    rec_id = existing[0]
+                    prev_status = existing[1]
                 last_changed = now if status != prev_status else None
                 self._db.execute(
                     "UPDATE link_state SET status=?, reason=?, location=?, "
