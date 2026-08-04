@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.2.0 (2026-08-03)
+
+### Features
+- **SPA scan engine** — JavaScript-rendered link extraction via Playwright; `render_js=true` query parameter on `/scan` renders pages with headless Chromium before extracting links
+- **Link diff engine** — `DiffDetector` compares current scan results against persisted `LinkStateStore` to detect new broken, resolved, status-changed, new, and removed links
+- **Diff alerts** — `DiffNotificationTemplates` and `DiffNotifier` send email/Slack alerts when link state changes are detected between scans
+- **Per-URL link state tracking** — `LinkStateStore` persists individual link states in SQLite with upsert support, `first_seen`/`last_seen` timestamps, and `scan_mode` (`static`/`spa`)
+
+### Tests
+- Added SPA scanner unit tests: import, instantiation, signature, raw extraction, Playwright rendering, fallback behavior
+- Added SPA integration tests: JS-generated link discovery, link diff detection, status change detection, notification firing, diff alert template rendering, regression detection
+- Added link diff tests: DiffDetector compare, LinkStateStore upsert, DiffReport structure, change categories
+- Added diff alert tests: template rendering, notification delivery, rate limiting
+- Total test count: 838 passed / 0 failed / 34 skipped / 1 xpassed
+
+### Docs
+- Updated README with SPA scanning features, Playwright installation, `render_js` endpoint parameter, and Link Diff Engine section
+- Updated CHANGELOG with v1.2.0 entry
+- Added `docs/spa-scanning.md` — full reference for SPA scan mode
+
 ## v0.9.0 (2026-07-30)
 
 ### Features

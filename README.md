@@ -7,6 +7,9 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 - 🔍 Scan any webpage for broken links
 - 📊 Export as JSON, CSV, Markdown, or JSONL
 - ⚡ Batch scanning — check up to 50 URLs in parallel in a single request
+- 🕐 **SPA scanning** — JavaScript-rendered link detection via Playwright for SPAs and dynamic pages
+- 🔗 **Link diff engine** — compare scans to detect new broken, resolved, and status-changed links
+- 🔔 **Diff alerts** — email/Slack notifications when link state changes are detected
 - 🔔 Webhook notifications when broken links are found
 - 📧 Email notifications via SMTP when broken links are detected
 - 💬 Slack integration via Incoming Webhooks
@@ -22,11 +25,18 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 # Install
 pip install -e .
 
+# Optional: SPA scanning (JavaScript-rendered pages)
+pip install -e ".[playwright]"
+playwright install chromium
+
 # Run
 python -m brokenlinkbrief.app
 
 # Scan a page
 curl "http://127.0.0.1:8000/scan?url=https://example.com"
+
+# SPA scan (renders JavaScript first)
+curl "http://127.0.0.1:8000/scan?url=https://example.com&render_js=true"
 ```
 
 ## Endpoints
@@ -35,6 +45,7 @@ curl "http://127.0.0.1:8000/scan?url=https://example.com"
 |--------|------|------|-------------|
 | GET | `/health` | No | Smoke test |
 | GET | `/scan?url=<target>` | Optional | JSON results (default) |
+| GET | `/scan?url=<target>&render_js=true` | Optional | SPA scan — render JavaScript before extracting links |
 | GET | `/scan?url=<target>&format=csv` | Optional | CSV export |
 | GET | `/scan?url=<target>&format=markdown` | Optional | Markdown brief |
 | GET | `/scan?url=<target>&format=jsonl` | Optional | JSON Lines |
@@ -154,6 +165,124 @@ Example error:
 {
   "detail": "duplicate URLs in request"
 }
+```
+
+## SPA Scanning
+
+For pages that rely on client-side JavaScript to render links (single-page applications, React/Vue/Angular apps), BrokenLinkBrief can use **Playwright** to render the page before extracting links.
+
+### Installation
+
+```bash
+pip install -e ".[playwright]"
+playwright install chromium
+```
+
+### Usage
+
+Add `render_js=true` to any scan request:
+
+```bash
+curl "http://127.0.0.1:8000/scan?url=https://your-spa.com&render_js=true"
+```
+
+Without Playwright installed, the server falls back to raw HTML extraction (regex-based, no JavaScript rendering).
+
+### How It Works
+
+1. Playwright launches a headless Chromium browser
+2. The page is loaded with `wait_until="networkidle"` (30s timeout)
+3. Links are extracted from the fully rendered DOM
+4. Results are merged with raw-HTML extraction — no duplicates
+
+### When to Use SPA Scanning
+
+| Scenario | `render_js` |
+|----------|-------------|
+| Static HTML pages | `false` (default) |
+| Pages with `<a>` tags in server HTML | `false` (default) |
+| React/Vue/Angular apps | `true` |
+| Pages using `document.createElement('a')` | `true` |
+| JavaScript-injected navigation | `true` |
+
+### Programmatic Usage
+
+```python
+from brokenlinkbrief.spa_scanner import SpaScanner
+
+scanner = SpaScanner(headless=True)
+results = scanner.scan_page("https://your-spa.com", render_js=True)
+
+for link in results:
+    print(f"{link.url} → {link.status}")
+```
+
+### Limitations
+
+- Requires Playwright and Chromium (~300 MB disk)
+- JavaScript rendering adds 2–10 seconds per page
+- Pages with auth walls or CAPTCHAs may not render correctly
+- Playwright failures return a single `playwright-error` result (scan does not crash)
+
+See [`docs/spa-scanning.md`](docs/spa-scanning.md) for the full reference.
+
+## Link Diff Engine
+
+The link diff engine compares current scan results against persisted link state to detect changes between scans.
+
+### What It Detects
+
+| Change Type | Description |
+|-------------|-------------|
+| **New broken** | Links that were previously healthy but now return errors |
+| **Resolved** | Links that were broken but are now healthy |
+| **Status changes** | Links whose HTTP status changed (e.g. 301 → 200) |
+| **New links** | Links discovered in the current scan that weren't in the previous scan |
+| **Removed links** | Links present in the previous scan but missing now |
+
+### Configuration
+
+Link state is persisted in SQLite via `LinkStateStore`. Set a persistent database path:
+
+```bash
+export BROKENLINKBRIEF_PROJECT_DB=/data/brokenlinkbrief.db
+```
+
+### Diff Alerts
+
+When link state changes are detected, BrokenLinkBrief can send alerts via email or Slack. Alerts are triggered automatically during scheduled scans that use the diff engine.
+
+```python
+from brokenlinkbrief.diff_detector import DiffDetector
+from brokenlinkbrief.diff_alerts import DiffNotificationTemplates
+
+# Compare current scan against stored state
+detector = DiffDetector(link_state_store)
+report = detector.compare(project_id, target_url, current_links)
+
+if report.has_changes:
+    alert_text = DiffNotificationTemplates.render_diff_alert(report)
+    print(alert_text)
+```
+
+### Programmatic Usage
+
+```python
+from brokenlinkbrief.link_state import LinkStateStore
+from brokenlinkbrief.diff_detector import DiffDetector
+
+store = LinkStateStore(db_connection)
+detector = DiffDetector(store)
+
+# Upsert link state from a scan
+store.upsert_links(project_id, target_url, links, scan_mode="static")
+
+# Compare against previous state
+report = detector.compare(project_id, target_url, current_links)
+
+print(f"New broken: {len(report.new_broken)}")
+print(f"Resolved: {len(report.resolved)}")
+print(f"Status changes: {len(report.status_changes)}")
 ```
 
 ## Authentication
@@ -589,8 +718,12 @@ docker run -p 8000:8000 brokenlinkbrief
 # Install dev dependencies
 pip install -e ".[dev]"
 
+# Optional: SPA scanning (for integration tests)
+pip install -e ".[playwright]"
+playwright install chromium
+
 # Run tests
-pytest
+.venv/bin/python -m pytest
 
 # Lint
 ruff check .
