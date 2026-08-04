@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>SPA Fixture - State 2</title></head>
+<body>
+<h1>SPA Test Page - Changed State</h1>
+<div id="links"></div>
+<script>
+// Dynamically generate links on page load — different from state 1
+var container = document.getElementById('links');
+
+// Link A removed, Link B added, Link C status changed (broken)
+var b = document.createElement('a');
+b.href = 'https://link-b.example.com/page';
+b.textContent = 'Link B';
+container.appendChild(b);
+
+var c = document.createElement('a');
+c.href = 'https://link-c.example.com/page';
+c.textContent = 'Link C (broken)';
+container.appendChild(c);
+</script>
+</body>
+</html>

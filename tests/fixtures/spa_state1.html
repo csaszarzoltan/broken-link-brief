@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>SPA Fixture - State 1</title></head>
+<body>
+<h1>SPA Test Page - Initial State</h1>
+<div id="links"></div>
+<script>
+// Dynamically generate links on page load (no timeout)
+var container = document.getElementById('links');
+var a = document.createElement('a');
+a.href = 'https://link-a.example.com/page';
+a.textContent = 'Link A';
+container.appendChild(a);
+
+var c = document.createElement('a');
+c.href = 'https://link-c.example.com/page';
+c.textContent = 'Link C';
+container.appendChild(c);
+</script>
+</body>
+</html>

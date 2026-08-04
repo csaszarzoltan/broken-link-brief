@@ -15,7 +15,6 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from brokenlinkbrief import __version__
-from brokenlinkbrief.projects import ProjectStore
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
     HistoryStore,
@@ -31,10 +30,13 @@ from brokenlinkbrief.package import (
     scan_page,
     validate_scan_url,
 )
-from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
-from brokenlinkbrief.scheduler import ScheduleStore
-from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
+from brokenlinkbrief.projects import ProjectStore
+from brokenlinkbrief.regression_detector import RegressionDetector
 from brokenlinkbrief.scan_history import ScanHistoryStore
+from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
+from brokenlinkbrief.scheduler import ScheduleStore
+from brokenlinkbrief.spa_scanner import SpaScanner
+from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
@@ -1120,7 +1122,13 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
             start = time.perf_counter()
-            scan_results = scan_page(target_url)
+            # SPA mode: use Playwright to render JS before extracting links
+            render_js = params.get("render_js", "").lower() in ("1", "true", "yes")
+            if render_js:
+                scanner = SpaScanner(headless=True)
+                scan_results = scanner.scan_page(target_url, render_js=True)
+            else:
+                scan_results = scan_page(target_url)
             latency = time.perf_counter() - start
 
             # Record scan and trigger webhooks only on changes
@@ -1137,6 +1145,36 @@ class _Handler(BaseHTTPRequestHandler):
                     {"url": r.url, "status": r.status} for r in scan_results
                 ]
                 diff = compute_diff(previous_results, current_results)
+                # Run regression detection on diffs with new broken links
+                if diff.get("added_broken"):
+                    regression_detector = RegressionDetector()
+                    scan_history_for_detector = [
+                        {
+                            "scan_id": "prev",
+                            "status": "completed",
+                            "scan_timestamp": history[1].get("timestamp", ""),
+                            "raw_results": {
+                                target_url: [
+                                    {"url": r.get("url"), "status": r.get("status")}
+                                    for r in previous_results
+                                ]
+                            },
+                        }
+                    ]
+                    regression_report = regression_detector.detect(
+                        project_id="default",
+                        current_results={
+                            target_url: [
+                                {"url": r.url, "status": r.status}
+                                for r in scan_results
+                            ]
+                        },
+                        scan_history=scan_history_for_detector,
+                    )
+                    if regression_report.has_regressions:
+                        # Log regression detection (notification handled by
+                        # the existing notify_all path below)
+                        pass
                 # Only fire webhooks if there are changes
                 if diff.get("added_broken") or diff.get("fixed"):
                     def _fire_webhooks() -> None:

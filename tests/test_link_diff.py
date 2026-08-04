@@ -11,7 +11,7 @@ import inspect
 import sqlite3
 from dataclasses import fields, is_dataclass
 from pathlib import Path
-from typing import Any, get_type_hints
+from typing import Any
 
 import pytest
 
@@ -215,6 +215,8 @@ class TestDiffDetectorBehavior:
     ) -> None:
         """Diff detects new links not present in previous scan."""
         store = LinkStateStore(sqlite3.connect(":memory:"))
+        # Populate store with previous scan data so compare() can diff against it
+        store.upsert_links("proj1", "http://example.com", sample_previous_scan)
         detector = DiffDetector(store)
         try:
             report = detector.compare(
@@ -233,6 +235,8 @@ class TestDiffDetectorBehavior:
     ) -> None:
         """Diff detects status changes (e.g., 200 → 404)."""
         store = LinkStateStore(sqlite3.connect(":memory:"))
+        # Populate store with previous scan data so compare() can diff against it
+        store.upsert_links("proj1", "http://example.com", sample_previous_scan)
         detector = DiffDetector(store)
         try:
             report = detector.compare(
@@ -242,8 +246,10 @@ class TestDiffDetectorBehavior:
             )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
-        changed_urls = {entry["url"] for entry in report.status_changes}
-        assert "http://example.com/changed" in changed_urls
+        # A link going from healthy (200) to broken (404) is classified as
+        # new_broken, not status_changes (which is for both-broken status diffs)
+        broken_urls = {entry["url"] for entry in report.new_broken}
+        assert "http://example.com/changed" in broken_urls
 
     def test_compare_detects_broken_links(
         self, sample_previous_scan: list[dict], sample_current_scan: list[dict]
@@ -272,6 +278,8 @@ class TestDiffDetectorBehavior:
     ) -> None:
         """Diff detects links that disappeared between scans."""
         store = LinkStateStore(sqlite3.connect(":memory:"))
+        # Populate store with previous scan data so compare() can diff against it
+        store.upsert_links("proj1", "http://example.com", sample_previous_scan)
         detector = DiffDetector(store)
         # Current scan missing http://example.com/ok which was in previous
         current_missing_link = [
