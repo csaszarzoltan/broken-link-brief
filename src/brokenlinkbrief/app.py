@@ -31,7 +31,6 @@ from brokenlinkbrief.package import (
     validate_scan_url,
 )
 from brokenlinkbrief.projects import ProjectStore
-from brokenlinkbrief.regression_detector import RegressionDetector
 from brokenlinkbrief.scan_history import ScanHistoryStore
 from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
 from brokenlinkbrief.scheduler import ScheduleStore
@@ -1145,36 +1144,6 @@ class _Handler(BaseHTTPRequestHandler):
                     {"url": r.url, "status": r.status} for r in scan_results
                 ]
                 diff = compute_diff(previous_results, current_results)
-                # Run regression detection on diffs with new broken links
-                if diff.get("added_broken"):
-                    regression_detector = RegressionDetector()
-                    scan_history_for_detector = [
-                        {
-                            "scan_id": "prev",
-                            "status": "completed",
-                            "scan_timestamp": history[1].get("timestamp", ""),
-                            "raw_results": {
-                                target_url: [
-                                    {"url": r.get("url"), "status": r.get("status")}
-                                    for r in previous_results
-                                ]
-                            },
-                        }
-                    ]
-                    regression_report = regression_detector.detect(
-                        project_id="default",
-                        current_results={
-                            target_url: [
-                                {"url": r.url, "status": r.status}
-                                for r in scan_results
-                            ]
-                        },
-                        scan_history=scan_history_for_detector,
-                    )
-                    if regression_report.has_regressions:
-                        # Log regression detection (notification handled by
-                        # the existing notify_all path below)
-                        pass
                 # Only fire webhooks if there are changes
                 if diff.get("added_broken") or diff.get("fixed"):
                     def _fire_webhooks() -> None:

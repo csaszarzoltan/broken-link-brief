@@ -74,7 +74,7 @@ class LinkStateStore:
 
             # Check if a record already exists for this link
             existing = self._db.execute(
-                "SELECT id, status FROM link_state "
+                "SELECT id, status, first_seen FROM link_state "
                 "WHERE project_id=? AND target_url=? AND link_url=? "
                 "ORDER BY last_seen DESC LIMIT 1",
                 (project_id, target_url, link_url),
@@ -85,9 +85,11 @@ class LinkStateStore:
                 if hasattr(existing, "keys"):
                     rec_id = existing["id"]
                     prev_status = existing["status"]
+                    original_first_seen = existing["first_seen"]
                 else:
                     rec_id = existing[0]
                     prev_status = existing[1]
+                    original_first_seen = existing[2]
                 last_changed = now if status != prev_status else None
                 self._db.execute(
                     "UPDATE link_state SET status=?, reason=?, location=?, "
@@ -102,7 +104,7 @@ class LinkStateStore:
                     status=status,
                     reason=reason,
                     location=location,
-                    first_seen=now,  # simplified: first_seen is the upsert time
+                    first_seen=original_first_seen,
                     last_seen=now,
                     last_changed=last_changed,
                     scan_mode=scan_mode,

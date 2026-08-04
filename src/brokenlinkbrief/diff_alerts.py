@@ -13,8 +13,19 @@ from brokenlinkbrief.notifications import (
     NotifierConfig,
     RateLimiter,
     SlackNotifier,
-    _make_delivery_outcome,
 )
+
+
+def _make_delivery_outcome(
+    channel: str,
+    sent: bool,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """Build a standard delivery outcome dict."""
+    outcome: dict[str, Any] = {"sent": sent}
+    if error:
+        outcome["error"] = error
+    return outcome
 
 
 class DiffNotificationTemplates:

@@ -132,16 +132,18 @@ class SpaScanner:
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(headless=self._headless)
-                context = browser.new_context()
-                page = context.new_page()
-                with contextlib.suppress(Exception):
-                    page.goto(
-                        url,
-                        wait_until="networkidle",
-                        timeout=30000,
-                    )
-                rendered_html = page.content()
-                browser.close()
+                try:
+                    context = browser.new_context()
+                    page = context.new_page()
+                    with contextlib.suppress(Exception):
+                        page.goto(
+                            url,
+                            wait_until="networkidle",
+                            timeout=30000,
+                        )
+                    rendered_html = page.content()
+                finally:
+                    browser.close()
         except Exception:
             # Playwright itself failed — return partial results
             return [
