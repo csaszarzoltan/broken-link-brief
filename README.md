@@ -1015,3 +1015,11 @@ Request body:
   "pinned": true
 }
 ```
+
+## Trusted Findings and Verify Fix
+
+Version 1.3.0 adds an evidence-aware repair workflow for saved projects. Run a saved single-page project scan, open **Trusted findings** in the dashboard, inspect the exact source occurrence and bounded probe evidence, acknowledge the work, and select **Verify fix** after repair. Only repeated confirmed failures create findings; transient, bot-blocked, recovered, and inconclusive observations do not create noise.
+
+Findings are stored in the configured `BROKENLINKBRIEF_PROJECT_DB` with optimistic versions, immutable audit events, source occurrences, evidence, and verification history. Existing `/scan` result fields and CSV, Markdown, and JSONL exports are unchanged. See [docs/findings.md](docs/findings.md) for API examples, classifications, migration, privacy, and troubleshooting.
+
+If verification is inconclusive, the finding remains unchanged and the dashboard offers a safe retry. Back up the SQLite project database before upgrading. Query-string tokens remain supported for compatibility, but bearer headers are recommended for API clients.

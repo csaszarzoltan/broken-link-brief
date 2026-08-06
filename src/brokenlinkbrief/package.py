@@ -832,3 +832,44 @@ def compute_diff(previous: list[dict], current: list[dict]) -> dict:
         "fixed": fixed,
         "still_broken": still_broken,
     }
+
+@dataclass(frozen=True)
+class ScanObservation:
+    """Backward-compatible result paired with bounded confidence evidence."""
+    result: LinkResult
+    attempts: tuple[object, ...]
+    assessment: object
+
+
+def _probe_request(url: str, method: str, timeout: float):
+    return _request_head(url, timeout) if method == "HEAD" else _request_get(url, timeout)
+
+
+def scan_link_detailed(
+    url: str,
+    timeout: float = 10.0,
+    max_attempts: int = 2,
+    requester=None,
+    sleeper=None,
+) -> ScanObservation:
+    """Check one link with bounded retry evidence without changing LinkResult."""
+    import time as _time
+    from brokenlinkbrief.confidence import ProbeAttempt, classify_evidence
+    requester = requester or _probe_request
+    sleeper = sleeper or _time.sleep
+    attempts = []
+    location = None
+    for index in range(max(1, min(3, max_attempts))):
+        method = "HEAD" if index == 0 else "GET"
+        started = _time.perf_counter()
+        status, reason, location = requester(url, method, timeout)
+        latency = _time.perf_counter() - started
+        error = reason if status is None else None
+        attempts.append(ProbeAttempt(method, status, error, latency))
+        retry = status is None or status == 429 or (status is not None and status >= 500) or status in {404, 410}
+        if not retry or index + 1 >= max_attempts:
+            break
+        sleeper(min(0.25 * (2**index), 1.0))
+    final = attempts[-1]
+    result = LinkResult(url, final.status, final.error or (str(final.status) if final.status is not None else None), location)
+    return ScanObservation(result, tuple(attempts), classify_evidence(attempts))

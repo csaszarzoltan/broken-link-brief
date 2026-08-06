@@ -31,6 +31,10 @@ from brokenlinkbrief.package import (
     validate_scan_url,
 )
 from brokenlinkbrief.projects import ProjectStore
+from brokenlinkbrief.findings import FindingStore, VersionConflict
+from brokenlinkbrief.finding_service import FindingService
+from brokenlinkbrief.package import scan_link_detailed, fetch_html
+from brokenlinkbrief.triage import extract_occurrences
 from brokenlinkbrief.scan_history import ScanHistoryStore
 from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
 from brokenlinkbrief.scheduler import ScheduleStore
@@ -317,6 +321,13 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   .project-list { display:grid; gap:10px; margin-top:16px; }
   .project-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border:1px solid #294066; border-radius:8px; }
   .project-item strong { display:block; }
+  :root { --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --focus:#8bd3ff; }
+  :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+  .finding-filters { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; align-items:end; }
+  .finding-filters label { display:grid; gap:4px; }
+  .finding-filters select,.finding-filters input { padding:10px; border-radius:6px; border:1px solid #52658a; background:#0e1730; color:#fff; }
+  .finding-card { border:1px solid #294066; border-radius:8px; padding:12px; margin-top:8px; }
+  @media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto!important; transition:none!important; } }
 </style>
 </head>
 <body>
@@ -344,6 +355,13 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <div id="projectStatus" class="status" role="status" aria-live="polite"></div>
   <div id="projectList" class="project-list" aria-live="polite"><p class="muted">Loading projects…</p></div>
 </section>
+<section class="scan-panel" aria-labelledby="findingsHeading" id="findingsWorkspace">
+  <h2 id="findingsHeading">Trusted findings</h2>
+  <p class="muted">Confirmed broken links become durable repair work with evidence and source context.</p>
+  <div class="finding-filters"><label for="findingProject">Project<select id="findingProject"><option value="">Choose a project</option></select></label><label for="findingState">State<select id="findingState"><option value="">Open and acknowledged</option><option>OPEN</option><option>ACKNOWLEDGED</option><option>IGNORED</option><option>RESOLVED</option></select></label><label for="findingSearch">Search<input id="findingSearch" type="search" placeholder="Target or assignee"></label><button class="secondary" id="refreshFindings" type="button">Refresh findings</button></div>
+  <div id="findingStatus" class="status" role="status" aria-live="polite">Choose a saved project to review findings.</div><div id="findingList" aria-live="polite"></div>
+</section>
+<dialog id="findingDialog" aria-labelledby="findingDialogTitle"><div class="dialog-head"><h2 id="findingDialogTitle">Finding details</h2><button type="button" id="closeFinding" class="icon-button">Close</button></div><div id="findingActionStatus" role="status" aria-live="assertive"></div><div id="findingDetail"></div></dialog>
 <section class="scan-panel" aria-labelledby="scanHeading">
   <h2 id="scanHeading">Scan pages</h2>
   <div class="mode-tabs" role="tablist" aria-label="Scan mode">
@@ -538,6 +556,7 @@ function apiTokenQuery() {
 }
 
 function runProjectScan(project) {
+  window.activeProjectScanId = project.id;
   loadProjectTargets(project);
   if (project.targets.length === 1) {
     document.getElementById('scanForm').requestSubmit();
@@ -876,6 +895,7 @@ document.getElementById('scanForm').addEventListener('submit', async (event) => 
   if (!input.reportValidity()) return;
   button.disabled = true; status.textContent = 'Scanning. This may take a moment…';
   const query = new URLSearchParams({url: input.value.trim()});
+  if (window.activeProjectScanId) { query.set('project_id', window.activeProjectScanId); window.activeProjectScanId = null; }
   const token = new URLSearchParams(window.location.search).get('token');
   if (token) query.set('token', token);
   try {
@@ -1072,9 +1092,19 @@ async function loadAll() {
   }
 }
 
+
+let activeFinding = null; let findingTrigger = null;
+async function loadFindingProjects() { const res=await fetch(`/api/projects${apiTokenQuery()}`); if(!res.ok)return; const projects=await res.json(); const select=document.getElementById('findingProject'); select.innerHTML='<option value="">Choose a project</option>'+projects.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join(''); }
+async function loadFindings(){ const project=document.getElementById('findingProject').value; const list=document.getElementById('findingList'); const status=document.getElementById('findingStatus'); if(!project){list.innerHTML='';status.textContent='Choose a saved project to review findings.';return;} status.textContent='Loading findings…'; const q=new URLSearchParams({project_id:project}); const state=document.getElementById('findingState').value; if(state)q.set('state',state); const search=document.getElementById('findingSearch').value.trim(); if(search)q.set('q',search); const token=new URLSearchParams(location.search).get('token');if(token)q.set('token',token); try{const r=await fetch(`/api/findings?${q}`);const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not load findings');status.textContent=`${data.total} findings`;list.innerHTML=data.items.length?data.items.map(f=>`<article class="finding-card"><strong>${escapeHtml(f.target_url)}</strong><p><span class="badge bad">${escapeHtml(f.state)}</span> ${escapeHtml(f.classification)} · ${escapeHtml(f.assignee||'Unassigned')}</p><button class="secondary" data-finding="${escapeHtml(f.id)}">View details</button></article>`).join(''):'<p class="muted">No confirmed broken links match these filters.</p>';list.querySelectorAll('[data-finding]').forEach(b=>b.onclick=()=>openFinding(b.dataset.finding,b));}catch(e){status.textContent=`Unable to load findings: ${e.message}`;list.innerHTML='<button class="secondary" onclick="loadFindings()">Retry</button>';}}
+async function openFinding(id,trigger){findingTrigger=trigger;const token=new URLSearchParams(location.search).get('token');const r=await fetch(`/api/findings/${encodeURIComponent(id)}${token?'?token='+encodeURIComponent(token):''}`);activeFinding=await r.json();if(!r.ok)return;renderFinding();const d=document.getElementById('findingDialog');d.showModal();document.getElementById('verifyFinding').focus();}
+function renderFinding(){const f=activeFinding;document.getElementById('findingDialogTitle').textContent=f.target_url;document.getElementById('findingDetail').innerHTML=`<p><strong>${escapeHtml(f.state)}</strong> · ${escapeHtml(f.classification)} · status ${escapeHtml(f.latest_status??'No response')}</p><p>${escapeHtml(f.reason)}</p><button id="verifyFinding" class="primary">Verify fix</button> <button id="ackFinding" class="secondary">Acknowledge</button> <button id="reopenFinding" class="secondary">Reopen</button><p><label for="findingAssignee">Assignee</label> <input id="findingAssignee" maxlength="120" value="${escapeHtml(f.assignee||'')}"> <button id="assignFinding" class="secondary">Save assignment</button></p><p><label for="findingIgnoreReason">Ignore reason</label> <input id="findingIgnoreReason" maxlength="500"> <label for="findingIgnoreExpiry">Expiry</label> <input id="findingIgnoreExpiry" type="date"> <button id="ignoreFinding" class="secondary">Ignore</button></p><h3>Source occurrences</h3><ul>${f.occurrences.map(o=>`<li><a target="_blank" rel="noopener noreferrer" href="${escapeHtml(o.source_url)}">${escapeHtml(o.source_url)} (opens in new tab)</a><br>${escapeHtml(o.anchor_text)} · ${escapeHtml(o.context)}</li>`).join('')}</ul><details><summary>Evidence (${f.evidence.length})</summary><ol>${f.evidence.map(e=>`<li>${escapeHtml(e.method)} ${escapeHtml(e.status??e.error)} · ${escapeHtml(e.classification)}</li>`).join('')}</ol></details>`;document.getElementById('verifyFinding').onclick=()=>findingAction('verify');document.getElementById('ackFinding').onclick=()=>findingAction('acknowledge');document.getElementById('reopenFinding').onclick=()=>findingAction('reopen');document.getElementById('assignFinding').onclick=()=>findingAction('assignment',{assignee:document.getElementById('findingAssignee').value});document.getElementById('ignoreFinding').onclick=()=>findingAction('ignore',{reason:document.getElementById('findingIgnoreReason').value,expiry:document.getElementById('findingIgnoreExpiry').value||null});}
+async function findingAction(action,extra={}){const status=document.getElementById('findingActionStatus');status.textContent=action==='verify'?'Verifying target and source pages…':'Saving…';const token=new URLSearchParams(location.search).get('token');const r=await fetch(`/api/findings/${encodeURIComponent(activeFinding.id)}/${action}${token?'?token='+encodeURIComponent(token):''}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version:activeFinding.version,...extra})});const data=await r.json();if(!r.ok){status.textContent=data.detail||'Action failed';return;}activeFinding=data.finding||await (await fetch(`/api/findings/${activeFinding.id}${token?'?token='+encodeURIComponent(token):''}`)).json();status.textContent=data.outcome?`Verification: ${data.outcome}. ${activeFinding.state==='RESOLVED'?'Finding resolved.':'State unchanged.'}`:'Finding acknowledged.';renderFinding();loadFindings();}
+document.getElementById('findingProject').addEventListener('change',loadFindings);document.getElementById('findingState').addEventListener('change',loadFindings);document.getElementById('findingSearch').addEventListener('input',loadFindings);document.getElementById('refreshFindings').addEventListener('click',loadFindings);document.getElementById('closeFinding').addEventListener('click',()=>{document.getElementById('findingDialog').close();if(findingTrigger)findingTrigger.focus();});
+
 loadAll();
 loadRecentTargets();
 loadProjects();
+loadFindingProjects();
 </script>
 </body>
 </html>"""
@@ -1129,6 +1159,24 @@ class _Handler(BaseHTTPRequestHandler):
             else:
                 scan_results = scan_page(target_url)
             latency = time.perf_counter() - start
+
+            # Saved-project scans additionally maintain trusted findings while
+            # preserving the legacy scan response contract.
+            project_id = params.get("project_id")
+            if project_id:
+                try:
+                    project = ProjectStore().get(project_id)
+                    if target_url not in project.targets or project.archived:
+                        raise ValueError("target is not active in this project")
+                    source_body = fetch_html(target_url)
+                    if source_body is not None:
+                        service = FindingService(FindingStore())
+                        for occurrence in extract_occurrences(target_url, source_body):
+                            detail = scan_link_detailed(occurrence.target_url)
+                            service.observe(project_id, occurrence, list(detail.attempts))
+                except (KeyError, ValueError) as exc:
+                    _write_json(self, 400, {"code": "invalid_project_scan", "detail": str(exc)})
+                    return
 
             # Record scan and trigger webhooks only on changes
             import threading
@@ -1249,6 +1297,37 @@ class _Handler(BaseHTTPRequestHandler):
                 payload["scan_summary"] = store.summarize(item, history_store)
                 projects.append(payload)
             _write_json(self, 200, projects)
+            return
+
+        # TRUSTED FINDINGS ENDPOINTS
+        if path == "/api/findings" or path.startswith("/api/findings/"):
+            expected_token = get_configured_scan_token()
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if expected_token is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL})
+                return
+            store = FindingStore()
+            try:
+                if path == "/api/findings":
+                    project_id = params.get("project_id")
+                    if not project_id:
+                        raise ValueError("project_id is required")
+                    result = store.list(project_id, params.get("state"), params.get("classification"), params.get("q", ""), params.get("limit", 50), params.get("offset", 0))
+                else:
+                    finding_id = path.removeprefix("/api/findings/")
+                    if not finding_id or "/" in finding_id:
+                        raise KeyError(finding_id)
+                    result = store.detail(finding_id)
+            except ValueError as exc:
+                _write_json(self, 400, {"code": "invalid_finding_query", "detail": str(exc)})
+                return
+            except KeyError:
+                _write_json(self, 404, {"code": "finding_not_found", "detail": "finding not found"})
+                return
+            _write_json(self, 200, result)
             return
 
         # DASHBOARD ENDPOINTS
@@ -1445,6 +1524,45 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path.startswith("/api/findings/"):
+            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+            provided_token = params.get("token")
+            authorization = self.headers.get("Authorization") or ""
+            if provided_token is None and authorization.startswith("Bearer "):
+                provided_token = authorization.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
+                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL})
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(content_length) if content_length else b"{}")
+                if not isinstance(body, dict) or not isinstance(body.get("version"), int):
+                    raise ValueError("version integer is required")
+                relative = path.removeprefix("/api/findings/")
+                finding_id, action = relative.rsplit("/", 1)
+                store = FindingStore()
+                if action == "acknowledge": result = store.acknowledge(finding_id, body["version"])
+                elif action == "assignment": result = store.assign(finding_id, body["version"], body.get("assignee"))
+                elif action == "ignore": result = store.ignore(finding_id, body["version"], str(body.get("reason", "")), body.get("expiry"))
+                elif action == "reopen": result = store.reopen(finding_id, body["version"])
+                elif action == "verify":
+                    detail = store.detail(finding_id)
+                    target = scan_link_detailed(detail["target_url"])
+                    source_bodies = {item["source_url"]: fetch_html(item["source_url"]) for item in detail["occurrences"] if item["active"]}
+                    result = FindingService(store).verify(finding_id, body["version"], list(target.attempts), source_bodies)
+                else: raise KeyError(action)
+            except VersionConflict as exc:
+                _write_json(self, 409, {"code": "finding_version_conflict", "detail": str(exc)})
+                return
+            except KeyError:
+                _write_json(self, 404, {"code": "finding_not_found", "detail": "finding or action not found"})
+                return
+            except (ValueError, TypeError) as exc:
+                _write_json(self, 400, {"code": "invalid_finding_action", "detail": str(exc)})
+                return
+            _write_json(self, 200, result)
+            return
 
         if path.startswith("/api/projects/") and path.endswith("/pin"):
             params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}

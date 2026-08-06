@@ -217,3 +217,7 @@ Exports contain only name and targets. Imports are authenticated and SSRF valida
 ### Project pin API
 
 `POST /api/projects/{id}/pin` accepts a JSON boolean `pinned` field. Pinned projects are listed before unpinned projects. Existing databases receive the new column automatically.
+
+### Trusted Findings API
+
+Saved projects can maintain evidence-aware durable findings with source occurrences, lifecycle actions, audit history, and targeted verification. See [findings.md](findings.md) for the complete additive API and migration reference.
