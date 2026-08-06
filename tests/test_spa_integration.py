@@ -100,7 +100,15 @@ def spa_fixture_server() -> Generator[str, None, None]:
 
 @pytest.fixture()
 def spa_scanner() -> SpaScanner:
-    """Return a SpaScanner configured for headless mode."""
+    """Return a scanner only when the Chromium runtime is actually usable."""
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as runtime:
+            browser = runtime.chromium.launch(headless=True)
+            browser.close()
+    except Exception as exc:
+        pytest.skip(f"Playwright Chromium unavailable: {exc}")
     return SpaScanner(headless=True)
 
 

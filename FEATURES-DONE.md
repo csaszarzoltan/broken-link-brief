@@ -1,13 +1,13 @@
 # Features Done
 
 ## Features Done (this pass)
-- Evidence-aware probing: bounded retry evidence is classified without changing legacy `LinkResult` or export contracts.
-- Durable trusted findings: confirmed project failures upsert stable findings with source occurrences, evidence, lifecycle state, optimistic versions, and audit history.
-- Targeted Verify Fix: target and active sources produce recovered, removed, still-broken, or inconclusive outcomes with durable verification records.
-- Trusted Findings dashboard: project-scoped filtering, accessible detail review, live action feedback, responsive cards, safe external links, focus restoration, and reduced-motion support.
-- Additive findings API: authenticated list, detail, acknowledge, assignment, ignore, reopen, and verify operations.
+- SSRF-safe trusted findings: every extracted or stored URL is revalidated before project finding or Verify Fix network access.
+- Complete finding lifecycle safeguards: project integrity, archived-project read-only behavior, expired-ignore reopening, occurrence search, and occurrence reconciliation.
+- Verified repair outcomes: recovered, removed from source, still broken, and inconclusive paths now have focused regression coverage.
+- Findings UX completion: classification filter, verification/audit history, and action-specific status feedback.
+- Environment-correct browser tests: SPA integration tests skip only when Chromium is genuinely unavailable.
 
 ## Sources
-- research-findings.md items addressed: evidence-aware false-positive reduction; source occurrence and repair context; durable finding lifecycle; targeted Verify Fix.
-- implementation-plan.md requirements addressed: PR-1, PR-2, PR-3, selected UI/UX and compatibility contract.
-- CHANGELOG.md section this maps to: v1.3.0 (2026-08-06).
+- research-findings.md items addressed: trustworthy findings, source-aware repair context, durable lifecycle, targeted verification.
+- implementation-plan.md requirements addressed: PR-1, PR-2, PR-3 security, lifecycle, verification, UI, and regression criteria.
+- CHANGELOG.md section this maps to: v1.3.1 (2026-08-06).

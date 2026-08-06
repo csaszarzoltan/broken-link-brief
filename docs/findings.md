@@ -1,6 +1,6 @@
 # Trusted Findings API
 
-BrokenLinkBrief 1.3.0 turns repeated, confirmed link failures into durable project findings. Existing scan and export contracts remain unchanged.
+BrokenLinkBrief 1.3.1 turns repeated, confirmed link failures into durable project findings. Existing scan and export contracts remain unchanged.
 
 ## Classification
 
