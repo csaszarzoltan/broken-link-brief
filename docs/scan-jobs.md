@@ -1,0 +1,3 @@
+# Durable Scan Jobs
+
+Saved-project scans use SQLite-backed job records. Create a job with `POST /api/projects/{project_id}/jobs`; list or inspect jobs with `GET /api/jobs` and `GET /api/jobs/{id}`. Jobs expose queued, running, partial, completed, failed, cancelling, and cancelled states. `POST /api/jobs/{id}/cancel` requires the current integer version. `POST /api/jobs/{id}/retry-failures` accepts `preview: true` to list eligible, excluded, and invalid sources, or `preview: false` to create a child job. Optional `Idempotency-Key` headers prevent duplicate creation. Stored sources are revalidated before network use and errors are sanitized.

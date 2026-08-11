@@ -40,12 +40,23 @@ from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
 from brokenlinkbrief.scheduler import ScheduleStore
 from brokenlinkbrief.spa_scanner import SpaScanner
 from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
+from brokenlinkbrief.job_service import JobService
+from brokenlinkbrief.scan_jobs import JobConflict
+from brokenlinkbrief.scan_policy import PolicyConflict, ScanPolicyStore
 
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
 _webhook_registry = WebhookRegistry()
 _notifier_config = NotifierConfig.from_env()
 _rate_limiter = RateLimiter(capacity=10, fill_rate=0.1667)  # ~10 per 60s
+_job_service: JobService | None = None
+
+def _jobs() -> JobService:
+    global _job_service
+    if _job_service is None:
+        _job_service = JobService()
+        _job_service.start()
+    return _job_service
 
 
 @dataclass
@@ -355,6 +366,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <div id="projectStatus" class="status" role="status" aria-live="polite"></div>
   <div id="projectList" class="project-list" aria-live="polite"><p class="muted">Loading projects…</p></div>
 </section>
+<section class="scan-panel" aria-labelledby="jobsHeading" id="scanJobs"><h2 id="jobsHeading" tabindex="-1">Scan jobs</h2><p class="muted">Saved-project scans continue after refresh and preserve per-source progress.</p><div class="recent-actions"><button class="secondary" id="refreshJobs" type="button">Refresh jobs</button></div><div id="jobsStatus" class="status" role="status" aria-live="polite">Loading scan jobs.</div><ol id="jobsList" class="project-list"></ol></section>
 <section class="scan-panel" aria-labelledby="findingsHeading" id="findingsWorkspace">
   <h2 id="findingsHeading">Trusted findings</h2>
   <p class="muted">Confirmed broken links become durable repair work with evidence and source context.</p>
@@ -1094,6 +1106,8 @@ async function loadAll() {
 
 
 let activeFinding = null; let findingTrigger = null;
+
+async function loadJobs(){const status=document.getElementById('jobsStatus');const list=document.getElementById('jobsList');status.textContent='Loading scan jobs.';try{const r=await fetch(`/api/jobs${apiTokenQuery()}`);const d=await r.json();if(!r.ok)throw new Error(d.detail||'Could not load jobs');status.textContent=d.total?`${d.total} scan jobs`:'No project scans yet. Run a saved project to create one.';list.innerHTML=d.items.map(j=>`<li><article class="finding-card"><h3>${escapeHtml(j.project_name)} · ${escapeHtml(j.state)}</h3><p>${j.completed_count} of ${j.target_count} sources completed; ${j.failed_count} failed.</p><progress max="${j.target_count}" value="${j.completed_count+j.failed_count+j.cancelled_count}" aria-label="Job progress"></progress><p class="muted">Policy v${j.policy_version} · ${escapeHtml(j.id.slice(0,8))}</p></article></li>`).join('');}catch(e){status.textContent=`Updates paused: ${e.message}`;list.innerHTML='<li><button class="secondary" id="retryJobs">Retry</button></li>';document.getElementById('retryJobs').onclick=loadJobs;}}
 async function loadFindingProjects() { const res=await fetch(`/api/projects${apiTokenQuery()}`); if(!res.ok)return; const projects=await res.json(); const select=document.getElementById('findingProject'); select.innerHTML='<option value="">Choose a project</option>'+projects.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join(''); }
 async function loadFindings(){ const project=document.getElementById('findingProject').value; const list=document.getElementById('findingList'); const status=document.getElementById('findingStatus'); if(!project){list.innerHTML='';status.textContent='Choose a saved project to review findings.';return;} status.textContent='Loading findings…'; const q=new URLSearchParams({project_id:project}); const state=document.getElementById('findingState').value; if(state)q.set('state',state); const classification=document.getElementById('findingClassification').value;if(classification)q.set('classification',classification);const search=document.getElementById('findingSearch').value.trim(); if(search)q.set('q',search); const token=new URLSearchParams(location.search).get('token');if(token)q.set('token',token); try{const r=await fetch(`/api/findings?${q}`);const data=await r.json();if(!r.ok)throw new Error(data.detail||'Could not load findings');status.textContent=`${data.total} findings`;list.innerHTML=data.items.length?data.items.map(f=>`<article class="finding-card"><strong>${escapeHtml(f.target_url)}</strong><p><span class="badge bad">${escapeHtml(f.state)}</span> ${escapeHtml(f.classification)} · ${escapeHtml(f.assignee||'Unassigned')}</p><button class="secondary" data-finding="${escapeHtml(f.id)}">View details</button></article>`).join(''):'<p class="muted">No confirmed broken links match these filters.</p>';list.querySelectorAll('[data-finding]').forEach(b=>b.onclick=()=>openFinding(b.dataset.finding,b));}catch(e){status.textContent=`Unable to load findings: ${e.message}`;list.innerHTML='<button class="secondary" onclick="loadFindings()">Retry</button>';}}
 async function openFinding(id,trigger){findingTrigger=trigger;const token=new URLSearchParams(location.search).get('token');const r=await fetch(`/api/findings/${encodeURIComponent(id)}${token?'?token='+encodeURIComponent(token):''}`);activeFinding=await r.json();if(!r.ok)return;renderFinding();const d=document.getElementById('findingDialog');d.showModal();document.getElementById('verifyFinding').focus();}
@@ -1125,6 +1139,34 @@ class _Handler(BaseHTTPRequestHandler):
             status_code = 200 if health.status == "healthy" else 503
             _write_json(self, status_code, asdict(health))
             return
+
+        if path == "/api/jobs" or path.startswith("/api/jobs/"):
+            provided = params.get("token")
+            auth = self.headers.get("Authorization") or ""
+            if provided is None and auth.startswith("Bearer "):
+                provided = auth.split(" ", 1)[1]
+            if get_configured_scan_token() is not None and not is_scan_authorized(provided):
+                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL}); return
+            try:
+                if path == "/api/jobs":
+                    items = _jobs().jobs.list(params.get("project_id"))
+                    _write_json(self, 200, {"items": items, "total": len(items), "limit": 20, "offset": 0})
+                else:
+                    relative = path.removeprefix("/api/jobs/")
+                    if relative.endswith("/sources"):
+                        job_id = relative.removesuffix("/sources")
+                        _write_json(self, 200, {"items": _jobs().jobs.sources(job_id, params.get("state"))})
+                    else:
+                        _write_json(self, 200, {"job": _jobs().jobs.get(relative), "sources": _jobs().jobs.sources(relative)})
+            except KeyError:
+                _write_json(self, 404, {"code": "job_not_found", "detail": "job not found"})
+            return
+
+        if path.startswith("/api/projects/") and path.endswith("/scan-policy"):
+            project_id = path.removeprefix("/api/projects/").removesuffix("/scan-policy")
+            try: ProjectStore().get(project_id)
+            except KeyError: _write_json(self,404,{"code":"project_not_found","detail":"project not found"}); return
+            _write_json(self, 200, ScanPolicyStore().get(project_id)); return
 
         if path == "/scan":
             expected_token = get_configured_scan_token()
@@ -1527,6 +1569,38 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if path.startswith("/api/projects/") and path.endswith("/jobs"):
+            project_id = path.removeprefix("/api/projects/").removesuffix("/jobs")
+            try:
+                job = _jobs().create_project_job(project_id, self.headers.get("Idempotency-Key"))
+            except KeyError: _write_json(self,404,{"code":"project_not_found","detail":"project not found"}); return
+            except ValueError as exc: _write_json(self,400,{"code":"invalid_job","detail":str(exc)}); return
+            _write_json(self,202,{"job":job}); return
+
+        if path.startswith("/api/jobs/"):
+            length=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(length) if length else b"{}")
+            relative=path.removeprefix("/api/jobs/")
+            try:
+                if relative.endswith("/cancel"):
+                    result=_jobs().jobs.cancel(relative.removesuffix("/cancel"),body.get("version")); _write_json(self,200,{"job":result})
+                elif relative.endswith("/retry-failures"):
+                    jid=relative.removesuffix("/retry-failures")
+                    if body.get("preview",False): _write_json(self,200,_jobs().retry_preview(jid))
+                    else: _write_json(self,202,{"job":_jobs().retry_failures(jid,self.headers.get("Idempotency-Key"))})
+                else: raise KeyError(relative)
+            except JobConflict as exc: _write_json(self,409,{"code":"job_conflict","detail":str(exc)})
+            except KeyError: _write_json(self,404,{"code":"job_not_found","detail":"job not found"})
+            except (ValueError,TypeError) as exc: _write_json(self,400,{"code":"invalid_job_action","detail":str(exc)})
+            return
+
+        if path.startswith("/api/projects/") and path.endswith("/scan-policy"):
+            project_id=path.removeprefix("/api/projects/").removesuffix("/scan-policy")
+            length=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(length) if length else b"{}")
+            try: result=ScanPolicyStore().save(project_id,body.get("version"),body.get("defaults",{}),body.get("host_overrides",[]))
+            except PolicyConflict as exc: _write_json(self,409,{"code":"policy_conflict","detail":str(exc)}); return
+            except (ValueError,TypeError) as exc: _write_json(self,400,{"code":"invalid_policy","detail":str(exc)}); return
+            _write_json(self,200,result); return
 
         if path.startswith("/api/findings/"):
             params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}

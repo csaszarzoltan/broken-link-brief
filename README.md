@@ -1023,3 +1023,7 @@ Version 1.3.1 adds an evidence-aware repair workflow for saved projects. Run a s
 Findings are stored in the configured `BROKENLINKBRIEF_PROJECT_DB` with optimistic versions, immutable audit events, source occurrences, evidence, and verification history. Existing `/scan` result fields and CSV, Markdown, and JSONL exports are unchanged. See [docs/findings.md](docs/findings.md) for API examples, classifications, migration, privacy, and troubleshooting.
 
 If verification is inconclusive, the finding remains unchanged and the dashboard offers a safe retry. Back up the SQLite project database before upgrading. Query-string tokens remain supported for compatibility, but bearer headers are recommended for API clients.
+
+### Reliable Monitoring Operations
+
+Saved projects can now create durable background scan jobs through `POST /api/projects/{project_id}/jobs`. The dashboard includes an accessible **Scan jobs** region with persisted progress and terminal outcomes. Jobs can be cancelled with optimistic versions and partial/failed jobs can preview or create a retry containing only eligible failed sources. Project scan policies are immutable, versioned records with conservative defaults and exact-host overrides. See [docs/scan-jobs.md](docs/scan-jobs.md) and [docs/scan-policies.md](docs/scan-policies.md).

@@ -2,360 +2,599 @@
 
 ## Executive Summary
 
-BrokenLinkBrief 1.2.0 is a beta-stage, self-hostable Python link-quality monitor for developers, SEO/content operators, site owners, and small agencies. It already combines single and batch scans, JavaScript rendering, saved projects, recurring schedules, change detection, notifications, a browser dashboard, exports, CI gates, SSRF controls, and unusually broad automated coverage. The strongest opportunity is not to compete with full SEO suites on number of audit checks. It is to become the focused, trustworthy workflow between **a link becoming unreliable and a team proving the repair**.
+BrokenLinkBrief 1.3.1 is a mature beta, self-hostable link-quality monitor, not a simple one-off checker. The supplied project already supports static and JavaScript-rendered scans, saved projects, recurring schedules, diffing, alerts, exports, CI gates, evidence-aware trusted findings, source occurrences, lifecycle actions, and targeted verification. The codebase is strongest where broad SEO suites are weakest: focused repair evidence, local ownership of data, and a dependency-light deployment model.
 
-Current evidence converges on five needs: recurring monitoring rather than one-off checks; fewer false positives from throttling, bot defenses, and transient failures; exact source context so a repair owner can find the offending link; persistent history and verification after repair; and a simpler, lower-cost alternative to broad SEO suites. Community posts explicitly ask for saved links plus warnings, monitoring rather than slow manual checking, and persistent previous results. Public issues repeatedly report false positives caused by aggressive concurrency, 403/429/500 responses, and lack of retry or grace periods. [Reddit, “Is there a tool for checking broken links?”](https://www.reddit.com/r/webdev/comments/15o2xye/is_there_a_tool_for_checking_broken_links/), [Reddit, “Broken links hunting best tools”](https://www.reddit.com/r/SEO/comments/ndvmht/broken_links_hunting_best_tools/), [GitHub issue: link checker false positives](https://github.com/digipres/awesome-digital-preservation/issues/6), [GitHub issue: insane amount of false positives](https://github.com/asyncapi/.github/issues/199) (accessed 2026-08-06).
+The current market evidence does **not** justify another generic SEO dashboard. It supports a narrower position: **the trustworthy operations layer between detecting link rot and proving that repair work is complete**. Recurring demand is visible in requests to save arbitrary links and receive warnings, while open-source maintainers repeatedly report false positives from timeouts and HTTP 429 responses. Lychee's official guidance explicitly recommends tuning retries, concurrency, caching, authentication, or exclusions for rate limits, showing that network-policy tuning is table stakes rather than an edge case. [S1] [S2] [S3]
 
-The recommended next pass is a coherent vertical slice: **evidence-aware findings with source occurrence, persistent lifecycle state, and one-click targeted verification**. It should reuse the existing `triage.py`, `confidence.py`, project/history stores, and dashboard rather than add another isolated subsystem. P0 priorities are (1) integrate confidence classification and retry evidence into normal scans, (2) create a durable finding/repair lifecycle with exact source context, and (3) add targeted “verify fix” jobs with automated reopen/resolve rules. Scheduling UI, secure browser sessions, and notification administration follow as P1.
+The top three recommended priorities are: **P0 durable asynchronous scan jobs**, **P0 project-level noise-control policies**, and **P1 actionable repair handoff with assignment and issue-tracker links**. The existing trusted-finding and Verify Fix slice should be preserved as the product core. The next development pass should complete durable jobs plus policy controls first, because both improve reliability of every manual, scheduled, and verification workflow. Issue-tracker handoff should be designed in the same pass but implemented only after job and policy events are stable.
 
-The market is validated, but exact TAM for the narrow broken-link workflow is not reliably available. Broad “website monitoring market” reports disagree materially on 2024 values and growth, so this report does not present a single TAM or CAGR as fact. Directional validation is stronger: major SEO vendors include recurring site audits, change tracking, alerts, exports, and project-based packaging, while focused products charge from free through $159/month and broad suites start around $83 to $139/month. Official product and pricing pages demonstrate established willingness to pay for monitoring depth, scale, and automation. [Dr. Link Check pricing](https://www.drlinkcheck.com/pricing), [Screaming Frog pricing](https://www.screamingfrog.co.uk/seo-spider/pricing/), [Ahrefs pricing](https://ahrefs.com/pricing), [Semrush pricing](https://www.semrush.com/pricing/seo-ai-search/), [Sitechecker pricing](https://sitechecker.pro/account/plans/) (accessed 2026-08-06).
+Pricing evidence shows a wide willingness-to-pay range. Focused monitoring spans free to $159/month at Dr. Link Check, while professional desktop crawling costs £199/year and broad SEO suites start around $83 to $129/month before higher limits or added users. [S4] [S5] [S6] [S7] The defensible entry model for this project is therefore a generous self-hosted edition plus a future hosted plan based on monitored projects and scan frequency, not per-fix or opaque credits. Exact TAM and CAGR for this narrow category could not be validated from reliable primary evidence and are intentionally not invented.
 
 ## Project Understanding
 
-### What the project currently does
+### Verified purpose and users
 
-**Verified from the codebase:** BrokenLinkBrief scans public HTTP(S) pages, extracts links, checks status, records history, exports JSON/CSV/Markdown/JSONL, and serves a browser dashboard (`src/brokenlinkbrief/package.py`: `scan_page`, `scan_batch`, `HistoryStore`; `src/brokenlinkbrief/app.py`: `_Handler`, `_DASHBOARD_HTML`). It supports JavaScript-rendered pages through Playwright (`src/brokenlinkbrief/spa_scanner.py`: `SpaScanner`), persistent saved projects (`projects.py`: `ProjectStore`), cron schedules and worker leasing (`scheduler.py`: `SchedulerService`, `ScheduleStore`), regression and link-state diffing (`regression_detector.py`, `diff_detector.py`, `link_state.py`), email/Slack/webhook notifications (`notifications.py`, `webhook.py`, `diff_alerts.py`), organization/RBAC primitives (`governance.py`), confidence assessment (`confidence.py`), source occurrences and repair tasks (`triage.py`), and a CI baseline gate (`ci_gate.py`, `cli.py`).
+BrokenLinkBrief scans public pages, extracts and checks links, records history, detects changes, and exposes results through HTTP APIs, a browser dashboard, CLI, exports, notifications, and CI. Verified implementation anchors include `scan_page`, `scan_batch`, `HistoryStore`, and `scan_link_detailed` in `src/brokenlinkbrief/package.py`; `_Handler` and `_DASHBOARD_HTML` in `src/brokenlinkbrief/app.py`; `ProjectStore` in `projects.py`; `FindingStore` in `findings.py`; and `FindingService` in `finding_service.py`.
 
-**Verified delivery state:** `app.py` exposes the scan, project, dashboard, history, scheduled-project and webhook surfaces, but several richer domain primitives remain independent rather than unified. The product metadata is version 1.2.0 (`pyproject.toml`, `src/brokenlinkbrief/__init__.py`), classified Beta, license MIT, Python 3.10/3.11. The input tree has 94 files and 240 statically discoverable `test_` functions. `CHANGELOG.md` reports a prior full run of 838 passed, 34 skipped, and one xpass for 1.2.0, while `docs/TEST_RESULTS.md` still describes 1.1.5, demonstrating documentation drift.
+Primary users are developers and documentation maintainers, SEO/content operators, site administrators, and small agencies. The codebase supports these users through CI baselines, source-aware findings, recurring projects, alerting, batch scans, and project portability. Agency positioning is an inference from multi-project functions, duplicated configurations, exports, and competitor packaging rather than verified product telemetry.
 
-### Target users and primary jobs
+### Architecture and technology stack
 
-1. **Developers and documentation maintainers:** prevent new broken links in CI, inspect deterministic evidence, and export machine-readable results.
-2. **SEO/content operations:** locate the source page of each failure, separate new regressions from known debt, and hand off repair work.
-3. **Website administrators:** monitor recurring projects, receive change alerts, and verify repairs.
-4. **Small agencies and multi-site operators:** organize client/site projects, copy configurations, schedule scans, and produce evidence exports.
-
-These segments are supported by existing product behavior and by competitor positioning. Screaming Frog targets technical crawls and exposes inlink source context; Ahrefs and Semrush package site audit in broad SEO suites; Dr. Link Check packages projects, scheduled checks, filters, and reports. [Screaming Frog broken-link workflow](https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/?r_done=1), [Ahrefs Webmaster Tools](https://ahrefs.com/webmaster-tools), [Semrush Site Audit issues](https://www.semrush.com/kb/542-site-audit-issues-list), [Dr. Link Check pricing](https://www.drlinkcheck.com/pricing) (accessed 2026-08-06).
-
-### Architecture and stack
-
-- Python standard-library HTTP server and networking, packaged with setuptools (`app.py`, `package.py`, `pyproject.toml`).
-- SQLite for projects, schedules, link state, governance, findings, and scan history; JSONL history remains separately supported.
-- Embedded HTML/CSS/JavaScript dashboard in one large string in `app.py`, with Chart.js loaded from a CDN.
-- Optional Playwright/Chromium for SPA rendering.
-- Docker and Railway deployment (`Dockerfile`, `infra/Dockerfile`, `railway.toml`).
-- Pytest and Ruff in the development toolchain.
+- Python 3.10/3.11 package using the standard-library HTTP server and `urllib`-based network paths (`pyproject.toml`, `app.py`, `package.py`).
+- SQLite-backed projects, findings, schedules, link state, governance, and scan history; JSONL history is also retained.
+- Embedded HTML/CSS/vanilla JavaScript dashboard inside `app.py`, with Chart.js loaded externally.
+- Optional Playwright/Chromium rendering via `SpaScanner` in `spa_scanner.py`.
+- Docker and Railway deployment assets, setuptools packaging, pytest tests, and Ruff configuration.
+- 98 extracted files, 26 Python source modules, 43 Python test files, and 251 statically discovered `test_` functions in this supplied archive.
 
 ### Existing interface and principal flow
 
-The dashboard is a long, single-page experience: saved projects, single/batch scan forms, result filters/search/export, recent pages and history dialog, then summary cards and charts. A repeat user can save or pin a project, run it, filter results, inspect recent-page history, and export. Scheduling is represented in code and an API view, but is not a complete browser administration workflow.
+The principal browser flow is: choose or create a project, run a single or batch scan, review results, filter/search/export, open trusted findings, inspect source/evidence, acknowledge or assign/ignore, repair externally, and use Verify Fix. Saved projects can also be archived, restored, duplicated, imported/exported, and pinned. Scheduling exists in application services and documentation but is not yet a polished browser administration workflow.
 
 ### Current strengths
 
-- Strong feature breadth for a compact self-hosted product.
-- Change-first primitives: newly broken, resolved, status-changed, new, and removed links.
-- Source-aware browser result review and focused export.
-- Saved project lifecycle, portability, duplication, pinning, and summaries.
-- Defense-in-depth intent: SSRF validation, redirect policy, webhook HTTPS restrictions, HMAC signing, CSV formula neutralization, and hashed service credentials.
-- Accessibility intent: labels, live regions, focus transfer, native dialog/details, skip link, keyboard-compatible controls.
-- Extensive automated tests and backward-compatible incremental development.
-- No mandatory heavy runtime framework, with optional Playwright kept separate.
+1. **Evidence-aware repair loop.** `confidence.py`, `findings.py`, and `finding_service.py` distinguish confirmed, transient, bot-blocked, recovered, and inconclusive evidence and preserve verification/audit history.
+2. **Exact repair context.** Source occurrences, anchor text, and bounded context reduce the need to reproduce a scan manually.
+3. **Backward-compatible breadth.** Existing exports, APIs, project lifecycle, notifications, SPA scanning, and CI remain additive rather than repeatedly rewritten.
+4. **Security intent.** SSRF validation, redirect policy, HMAC webhooks, formula-injection protection, sanitized evidence, and revalidation of stored URLs are present.
+5. **Strong automated regression culture.** The project documents 838 passing tests in the latest development report, while this research phase did not alter or rerun product tests because source changes were prohibited.
 
-### Constraints for later phases
+### Constraints for planning and development
 
-- Preserve file format and API compatibility unless explicitly versioned.
-- Do not weaken outbound-network safeguards; consolidate `validate_scan_url`, `policy.py`, and webhook validation rather than bypass them.
-- Avoid a frontend rewrite before extracting the embedded assets and establishing DOM-level regression coverage.
-- Reuse the existing confidence, occurrence, governance, schedule, and project primitives where possible.
-- Treat SQLite concurrency, migration, and multiple independent stores as product risks.
-- Keep self-hosting and dependency-light deployment as differentiators.
+- Preserve legacy endpoint and export shapes unless changes are additive/versioned.
+- Treat all persisted URLs as untrusted before outbound use.
+- Keep Playwright optional and static scanning dependency-light.
+- Use migration-safe SQLite changes and avoid destructive resets.
+- Do not expand the embedded frontend without JavaScript syntax and DOM-level regression coverage.
+- Preserve source occurrence/evidence privacy: no headers, cookies, credentials, response bodies, or uncontrolled exceptions.
+- Do not conflate raw HTTP status, confidence classification, business priority, and workflow state.
 
 ## Current-State Gap Analysis
 
-| Area | What exists | Gap and consequence | Evidence |
-|---|---|---|---|
-| Functional | Scans, projects, history, schedules, alerts, diffing | Findings are not the durable center of the delivered workflow; scan rows do not carry assignment, acknowledgment, ignore, comments, due date, or verified closure | `app.py`, `triage.py`, `confidence.py` |
-| Trust | Raw status counting plus a separate evidence classifier | Users can still receive noisy failures from transient errors, throttling, bot blocking, or method differences | `app.py:_count_broken`; `confidence.py:classify_evidence`; false-positive issue evidence above |
-| Source context | Browser results retain source page | Main result rows do not expose anchor text, DOM context, multiple occurrences, or edit location even though `extract_occurrences` exists | `triage.py:extract_occurrences`; `app.py` result table |
-| UX | Accessible single-page dashboard | Capability growth has produced a dense page without persistent navigation, project context, independent widget errors, or actionable chart drill-down | `app.py:_DASHBOARD_HTML` |
-| Execution | Synchronous scan endpoints and scheduled executor | No durable browser job ID, cancellation, resumable progress, partial retry, or refresh recovery | `app.py:/scan`, `/scan-batch`; `scheduled_scan.py` |
-| Authentication | Optional bearer/query token; RBAC primitives | Query tokens can leak through history/logs; browser sessions, logout, expiry, CSRF, and integrated RBAC are absent | `docs/README.md`; `governance.py` |
-| Persistence | Multiple SQLite stores plus JSONL | Duplicate concepts and weak transactional boundaries complicate identity, retention, backup, and migration | `projects.py`, `scan_history.py`, `link_state.py`, `package.py:HistoryStore` |
-| Frontend maintainability | Self-contained deployment | Large inline HTML/JS/CSS makes CSP, testing, modular navigation, and safe iteration harder | `app.py:_DASHBOARD_HTML` |
-| Testing | Broad unit/integration suite | Limited real-browser and assistive-technology validation; prior docs note browser gaps | `docs/IMPLEMENTATION_REPORT_1.1.0.md`, `docs/TEST_RESULTS.md` |
-| Documentation | Extensive guides and reports | Version drift, duplicate historical reports, and stale known-gap scripts reduce trust | `docs/TEST_RESULTS.md`, `docs/_verify_examples.py`, `CHANGELOG.md` |
-| Distribution | Package, Docker, Railway | No hosted onboarding, managed worker story, backup guidance, upgrade command, or first-run diagnostic | `README.md`, `infra/Dockerfile`, `railway.toml` |
+| Area | Verified current state | Gap | User consequence | Priority |
+|---|---|---|---|---|
+| Scan execution | Single/batch requests and schedule workers exist | Browser scans are not durable jobs with resumable state, cancellation, or failed-source retry | Refreshes and process failures can lose operational context | P0 |
+| Noise control | Evidence classification and bounded retries exist | No project/host policy UI for concurrency, retry, grace, cache, or authenticated rate-limit handling | Users cannot tune recurring false positives safely | P0 |
+| Findings | Durable findings, assignment, ignore, audit, verification exist | No comments, labels, due dates, bulk actions, or external tracker link | Teams still hand work off manually | P1 |
+| Scheduling | Cron parser, store, leasing, config exist | No complete in-product create/edit/pause/preview workflow | Recurring monitoring remains operator-heavy | P1 |
+| Authentication | Optional bearer/query token | No secure browser session, expiration, recovery, or CSRF model | Query tokens can leak through URLs and logs | P1 |
+| Integrations | Email, Slack, webhooks exist | Configuration and delivery history are not cohesive in the UI | Troubleshooting alerts is difficult | P2 |
+| Information architecture | One long dashboard | No global navigation or shareable filtered views | Discoverability and scalability degrade as features grow | P2 |
+| Frontend maintainability | Semantic HTML and useful accessibility hooks | Large embedded asset increases edit risk | UI regressions become harder to isolate | P2 |
+| Market measurement | Strong pricing and feature comparables | No reliable narrow-category TAM/CAGR | Investment cases must use bottom-up validation, not invented market size | Explicit unknown |
 
 ## Target Users and Jobs to Be Done
 
-| User | Job to be done | Success looks like |
-|---|---|---|
-| Documentation developer | “When a pull request or scheduled check introduces a dead link, tell me only when evidence is credible and link me to the exact source.” | Low-noise gate, source line/context, deterministic outcome, reproducible local command |
-| Content/SEO operator | “When a link changes or dies, show where it appears and help me assign and verify the fix.” | New regression queue, occurrence context, ownership, status, one-click recheck |
-| Site administrator | “Monitor my critical pages automatically without rebuilding scan setup or reading raw crawl tables.” | Saved project, schedule, concise health state, actionable alert, recovery controls |
-| Agency operator | “Manage multiple sites economically and produce client-facing evidence without an enterprise SEO suite.” | Project isolation, portfolio overview, reports, unlimited collaborators or predictable seat model |
-| Engineering manager | “Show current unresolved risk, recurrence, and time-to-fix, not lifetime scan volume.” | Backlog metrics, aging, change trends, failed-job visibility, audit trail |
+| Segment | Core job | Current fit | Highest unmet need |
+|---|---|---|---|
+| Documentation developer | Prevent link regressions in PRs and scheduled checks | CI gate, CLI, JSON/CSV, evidence | Host-aware retry and durable CI/hosted identity |
+| SEO/content operator | Find where a broken link occurs and coordinate repair | Source occurrences, filtering, exports, findings | Bulk triage, owner workflow, external issue handoff |
+| Site administrator | Monitor sites without babysitting scans | Projects, schedules, alerts, dashboard | Durable jobs, schedule UI, delivery log |
+| Small agency | Separate and repeatedly scan client sites | Projects, duplication, pinning, exports | Portfolio overview, reusable policies, client reporting |
+| Engineering manager | Measure new regressions and repair completion | Diffing, verification, audit | SLA metrics, owner/due-date reporting, drill-down |
+
+A direct user-demand example is the request to save commissioned social-post URLs and receive a warning when they disappear, which is monitoring of arbitrary known links rather than a one-time site crawl. [S1] Screaming Frog's official broken-link workflow emphasizes the need to identify the source page through inlinks, validating “where is it?” as a core repair job. [S8]
 
 ## Target-Market Pain Points
 
-| User problem | Segment | Recurrence observed | Evidence | Confidence | Project implication |
+| User problem | Segment | Recurrence observed | Evidence | Confidence | Implication |
 |---|---|---:|---|---|---|
-| Need to save important links and receive a warning when they disappear | Marketers, content owners | Repeated across monitoring discussions | Reddit request for saved commissioned-content URLs and warnings; Reddit SEO discussion asks to monitor reachability. Accessed 2026-08-06. [Source 1](https://www.reddit.com/r/webdev/comments/15o2xye/is_there_a_tool_for_checking_broken_links/) [Source 2](https://www.reddit.com/r/SEO/comments/ndvmht/broken_links_hunting_best_tools/) | HIGH | Make recurring projects, schedules, and change alerts the default path |
-| False positives from aggressive concurrency and transient 403/429/500 failures | Developers, CI maintainers, SEO operators | Multiple independent issue threads and vendor troubleshooting | GitHub issues describe rapid requests causing blocking and brittle failure policy; Lychee documents 429 mitigation with concurrency, retries, acceptance rules, tokens, exclusions, and cache. Accessed 2026-08-06. [Issue A](https://github.com/digipres/awesome-digital-preservation/issues/6) [Issue B](https://github.com/asyncapi/.github/issues/199) [Lychee rate limits](https://lychee.cli.rs/troubleshooting/rate-limits/) | HIGH | Integrate per-host pacing, retries/backoff, cache, classification, and grace periods |
-| Need to know both what is broken and on which page | SEO/content repair owners | Repeated in product workflows and user reviews | Screaming Frog makes “Inlinks” the repair step; Chrome extension reviewers praise “what is broken” plus “on which page.” Accessed 2026-08-06. [Screaming Frog](https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/?r_done=1) [ChromeStats reviews](https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews) | HIGH | Persist every source occurrence, anchor text, and bounded context |
-| Need stop/cancel, persistence, and re-use of prior results | Operators of medium/large scans | Multiple explicit feature requests | Chrome extension reviews request cancellation and saved previous results; current BrokenLinkBrief batch scans are synchronous. Accessed 2026-08-06. [ChromeStats reviews](https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews) | MEDIUM | Durable jobs, cancellation, and retained findings should replace request-bound execution |
-| Need include/exclude rules for authenticated or problematic areas | Site owners, developers | Found in reviews and competitor packaging | Reviewer asks for whitelist/blacklist or CSS-selector control because an authenticated logout link breaks usage; Dr. Link Check places include/exclude rules in paid plans. Accessed 2026-08-06. [Review evidence](https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews) [Pricing/features](https://www.drlinkcheck.com/pricing) | MEDIUM | Add project-scoped exclusions with reasons, previews, and expiry |
-| Broad SEO suites are powerful but expensive or overwhelming for focused monitoring | Solo operators, small businesses, agencies | Repeated in independent reviews and price structures | Semrush Site Audit is described as overwhelming/expensive for small businesses; Sitechecker review calls pricing steep for a solo blogger; broad-suite official prices start materially above focused tools. Accessed 2026-08-06. [Semrush review](https://staquest.com/tools/semrush-site-audit) [Sitechecker reviews](https://www.capterra.com/p/166377/Sitechecker/pricing/) [Official Semrush pricing](https://www.semrush.com/pricing/seo-ai-search/) | HIGH | Position around focused link reliability, transparent limits, and self-hosted value |
-| Users need repeated verification during repair without quota anxiety | Site operators | Explicit vendor pricing change based on learned behavior | Dr. Link Check removed monthly check quotas because users fixing links need to rerun checks immediately. Accessed 2026-08-06. [Pricing changes](https://www.drlinkcheck.com/blog/pricing-changes) | HIGH | Do not meter targeted verification harshly; price by active projects/link capacity instead |
+| False positives from transient timeouts | Developers, docs teams | Repeated across public issues | ACCESS-Hive and llm-d issues describe valid links failing due to temporary network conditions or timeouts. [S2] [S9] | HIGH | Keep confidence evidence, retry policy, and inconclusive states first-class |
+| HTTP 429/rate limiting creates noisy failures | CI maintainers, large scans | Official docs plus current discussion | Lychee documents 429 floods and recommends concurrency, retry, token, cache, and exclusion controls; a 2026 discussion calls host rate limiting a common real-world problem. [S3] [S10] | HIGH | Add host-aware policy controls and per-host scheduling |
+| Users need source context, not only target status | SEO/content operators | Standard competitor workflow | Screaming Frog directs users to the Inlinks tab to locate the source of each broken URL. [S8] | HIGH | Preserve and improve occurrences, anchor/context, safe source links |
+| Repeat verification should not consume opaque quota | Site owners | Vendor changed pricing after user learning | Dr. Link Check removed monthly link quotas because users fixing a site need repeated checks to verify changes. [S11] | HIGH | Avoid per-scan credit anxiety; make failed-source retry and Verify Fix cheap |
+| Broad SEO suites are expensive for a focused job | Solo operators, small teams | Multiple current price pages/reviews | Ahrefs Lite is $129/month; Sitechecker starts at $83/month on its current official page; a Sitechecker review calls cost steep for solo bloggers. [S6] [S7] [S12] | HIGH | Position focused, self-hostable, lower-complexity value |
+| Powerful desktop crawlers can feel technical | Non-technical operators | Multiple reviews | Verified-user summaries report an outdated/technical interface and learning time for Screaming Frog. [S13] | MEDIUM | Provide guided repair UI, not a spreadsheet clone |
+| Long-running scans need control and recovery | Site admins, agencies | Inferred from product scale and competitor capabilities | Screaming Frog includes pause/resume and scheduling; open-source crawlers expose concurrency and retries. [S14] [S15] | MEDIUM | Durable job states, cancel, retry-failures, and progress are table stakes |
+| Monitoring needs alerts and history | Site owners | Official competitor packaging | Dr. Link Check and Sitechecker package scheduled checks/monitoring and alerts by tier. [S4] [S7] | HIGH | Connect schedules, jobs, changes, and delivery records coherently |
 
 ## Competitor Weaknesses
 
-### Screaming Frog SEO Spider
-
-Powerful and deep, but desktop-bound, table-heavy, and oriented to technical SEO specialists. The free crawl is capped at 500 URLs; the paid license is £199 per user per year. Its strength is precise crawl data and source “Inlinks,” but the user must navigate filters and panes and operate local resources. [Official pricing](https://www.screamingfrog.co.uk/seo-spider/pricing/) [Official broken-link tutorial](https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/?r_done=1) (accessed 2026-08-06).
-
-**Exploitable gap:** a simpler browser-first, recurring repair queue with shared state, alerts, and targeted verification, while retaining self-hosted deployment.
-
-### Ahrefs Site Audit / Ahrefs Free
-
-Ahrefs provides free audits for verified owned sites and expensive broad paid tiers with extensive backlink and search data. Official paid pricing lists Lite at $129/month, Standard at $249/month, Advanced at $449/month, and Enterprise at $1,499/month; Ahrefs Free provides Site Audit and broken internal/external link data for verified properties. [Ahrefs pricing](https://ahrefs.com/pricing) [Ahrefs Free](https://ahrefs.com/webmaster-tools) (accessed 2026-08-06).
-
-**Exploitable gap:** focused monitoring of arbitrary public targets and editorial/external links, lower operational complexity, self-hosting, and a repair lifecycle without paying for broad keyword/backlink intelligence.
-
-### Semrush Site Audit
-
-Semrush checks more than 140 issue types and exposes APIs, projects, reports, and prioritized technical SEO findings. Current official pricing ranges from a free demo tier to $139/month for SEO, $199 Starter, $299 Pro+, and $549 Advanced. Independent and community evidence highlights beginner overload, premium cost, crawl limits, and false positives when servers throttle the crawler. [Official issue catalog](https://www.semrush.com/kb/542-site-audit-issues-list) [Official pricing](https://www.semrush.com/pricing/seo-ai-search/) [Independent review](https://staquest.com/tools/semrush-site-audit) [False-positive discussion](https://www.reddit.com/r/SEMrush/comments/112uovj/site_audit_returning_00s_of_broken_internal_links/) (accessed 2026-08-06).
-
-**Exploitable gap:** transparent evidence and classification for every link outcome, with a narrower and calmer interface.
-
 ### Dr. Link Check
 
-The closest focused SaaS substitute. It offers two free projects/1,500 links and paid tiers at $13, $49, and $159 per month; higher tiers add larger sites, more frequent schedules, exports, include/exclude rules, blacklist checks, and soft-error checks. Its pricing is transparent and closely aligned to link capacity. [Official pricing](https://www.drlinkcheck.com/pricing) (accessed 2026-08-06).
+Strong focused cloud monitoring and clear project/link limits, but substantial scale is gated at $49 to $159/month, and advanced repair ownership is not prominent on the official pricing page. Its own pricing-history post confirms that quota anxiety conflicted with repair verification. [S4] [S11] Opportunity: self-hosted ownership, evidence-grade classifications, and a true finding lifecycle.
 
-**Exploitable gap:** self-hosting, open-source extensibility, developer CI integration, evidence classification, assignments, repair verification, and organization auditability.
+### Screaming Frog SEO Spider
+
+Best-in-class crawl depth, source inlinks, JavaScript rendering, scheduling, and configuration at £199/year, but local installation and a technical table-heavy interface impose a learning curve. [S5] [S8] [S13] Opportunity: cloud-like, guided, collaborative repair workflow while keeping precise evidence.
+
+### Ahrefs Site Audit
+
+Strong always-on auditing inside a broad SEO platform, with 100,000 crawl credits on the $129/month Lite plan. [S6] It is expensive if the buyer only needs reliable link operations, and its packaging emphasizes the wider SEO suite rather than repair lifecycle. Opportunity: narrow value, predictable costs, self-hosting, and source-to-verification workflow.
 
 ### Sitechecker
 
-Sitechecker is a cloud SEO/AI visibility platform with unlimited users, recurring monitoring, GSC/GA4 insights, alerts, segmentation, white labeling, and API access at higher tiers. Official prices are $83/month Basic, $208 Standard, and $375 Premium. Independent user evidence praises actionable UX but calls the price steep for a solo blog. [Official pricing](https://sitechecker.pro/account/plans/) [Independent pricing/review](https://www.capterra.com/p/166377/Sitechecker/pricing/) (accessed 2026-08-06).
+Strong agency monitoring, reports, unlimited users, GSC/GA4 context, and email/Slack alerts, but the official entry price is $83/month and daily monitoring begins higher. [S7] Independent review evidence highlights ease of use and actionable recommendations but also price sensitivity for solo users. [S12] Opportunity: focused pricing and operational evidence rather than a broad agency analytics bundle.
 
-**Exploitable gap:** narrower link-quality specialization, self-hosting, lower price, stronger developer automation, and evidence-level transparency.
+### Open-source Linkinator/Lychee class
+
+Fast, automatable, developer-friendly, and configurable. Linkinator supports websites/docs/local files, fragments, retries, and exports; Lychee documents rate-limit tuning. [S3] [S15] Their weakness for this target is not scanning mechanics but the absence of a persistent repair workspace with owners, occurrences, verification history, and non-technical UX. Opportunity: use these projects as standards/behavior references while differentiating on operations.
 
 ## Competitor Comparison
 
-| Product | Audience / position | Current packaging | Onboarding and flow | Repeated strengths | Repeated weaknesses / gap |
+| Product | Positioning | Current pricing evidence | Core strengths | Repeated weakness/gap | Exploitable space |
 |---|---|---|---|---|---|
-| Screaming Frog | Technical SEO, agencies, large crawls | Free 500 URLs; £199/user/year | Install desktop app, enter URL, crawl, filter 4xx, inspect Inlinks | Depth, configurability, JavaScript rendering, source context | Specialist UI, local resource use, per-user licensing, weak shared repair workflow |
-| Ahrefs | SEO professionals and marketing teams | Free verified-site audit; $129 to $1,499/month broad suite | Verify site, create project, schedule crawl, inspect issues | Large data index, broad SEO context, polished reports | Expensive for link-only use; owned-site verification limits free use; broad-suite complexity |
-| Semrush | Marketers, agencies, SEO teams | Free demo; $139 to $549/month plus enterprise | Create project, configure crawl, review prioritised issues | 140+ checks, prioritization, API, ecosystem | Overwhelming for beginners, premium pricing, server-throttling false positives |
-| Dr. Link Check | Website owners and focused link monitoring | Free; $13/$49/$159 monthly | Add website, crawl, review, schedule at paid tiers | Simple focus, soft-error/security checks, transparent limits | Limited team/work-management differentiation; closed SaaS; daily monitoring gated high |
-| Sitechecker | Agencies and SEO monitoring | $83/$208/$375 monthly | Create monitored site, connect data, review alerts and reports | Clean cloud UX, unlimited users, monitoring and reporting | High entry cost for solo/focused use; many unrelated SEO/AI features |
-| BrokenLinkBrief | Developers, content ops, small agencies wanting self-hosted focus | Open-source/self-hosted today | Save project, run scan, filter/history/export | Broad focused feature set, security intent, strong tests, self-hosting | Trust classification and repair lifecycle are not integrated; dense UI; synchronous jobs |
-
-Pricing and product claims in this table come from the vendors’ official pricing/documentation pages cited in the preceding section and were accessed 2026-08-06.
+| Dr. Link Check | Focused hosted link checker/monitor | Free; $13, $49, $159/month [S4] | Scheduled checks, projects, filters, reports | Higher scale costs; limited visible repair collaboration | Trusted findings plus predictable self-hosted/hosted pricing |
+| Screaming Frog | Desktop technical SEO crawler | Free 500 URLs; £199/year [S5] | Deep crawl controls, source inlinks, JS, integrations | Technical UI, local resources, per-user license [S13] | Guided team repair operations |
+| Ahrefs Site Audit | Broad all-in-one SEO suite | $129/$249/$449 monthly; enterprise $1,499 [S6] | Always-on audit, large crawler/data ecosystem | Expensive and broad for link-only use | Narrow value and transparent limits |
+| Sitechecker | Agency SEO monitoring/control center | $83/$208/$375 monthly on official page [S7] | Monitoring cadence, unlimited users, Slack/email, reports | Price sensitivity; bundled breadth [S12] | Affordable focused operations and self-hosting |
+| Linkinator/Lychee | Open-source CI/CLI validation | Free/open source | Automation, speed, configurable retry/concurrency | No durable business repair lifecycle | Hosted UI/workflow built on auditable primitives |
 
 ## Validated Demand Signals
 
-1. **Recurring monitoring is table stakes, not an advanced edge case.** Users explicitly ask for saved links and warnings, while Ahrefs, Dr. Link Check, Sitechecker, and Semrush sell scheduled or repeated audits. Confidence: HIGH. [Reddit monitoring request](https://www.reddit.com/r/webdev/comments/15o2xye/is_there_a_tool_for_checking_broken_links/) [Ahrefs broken-link checker](https://ahrefs.com/broken-link-checker) [Dr. Link Check pricing](https://www.drlinkcheck.com/pricing) [Sitechecker pricing](https://sitechecker.pro/account/plans/) (accessed 2026-08-06).
-
-2. **False-positive reduction is a primary product value.** Independent GitHub issues attribute noise to aggressive requests and brittle handling of transient failures; Lychee’s official guidance requires concurrency, retry, token, exclusion, acceptance, and caching controls. Confidence: HIGH. [GitHub false-positive issue](https://github.com/digipres/awesome-digital-preservation/issues/6) [AsyncAPI issue](https://github.com/asyncapi/.github/issues/199) [Lychee guidance](https://lychee.cli.rs/troubleshooting/rate-limits/) (accessed 2026-08-06).
-
-3. **Repair context matters more than a raw status list.** Screaming Frog’s official flow immediately moves from the broken URL to its source Inlinks, and user reviews praise knowing “what” and “where.” Confidence: HIGH. [Screaming Frog tutorial](https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/?r_done=1) [Chrome extension reviews](https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews) (accessed 2026-08-06).
-
-4. **History, cancellation, and verification are demanded in repeated use.** Reviews request saved previous results and stopping checks; Dr. Link Check changed pricing to allow unlimited reruns per project because users need to verify repairs. Confidence: MEDIUM-HIGH. [Chrome extension reviews](https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews) [Dr. Link Check pricing change](https://www.drlinkcheck.com/blog/pricing-changes) (accessed 2026-08-06).
-
-5. **There is room below all-in-one SEO suites.** Official pricing places focused Dr. Link Check at $13/month and broad suites from roughly $83 to $139/month; independent reviews flag cost and complexity for small operators. Confidence: HIGH. [Dr. Link Check](https://www.drlinkcheck.com/pricing) [Sitechecker](https://sitechecker.pro/account/plans/) [Semrush](https://www.semrush.com/pricing/seo-ai-search/) [Semrush review](https://staquest.com/tools/semrush-site-audit) (accessed 2026-08-06).
+1. **Arbitrary-link monitoring:** A web-development user asked for saved links and warnings when commissioned social posts disappear, a close match to project-based recurring monitoring. Publication: 2023-08-11; accessed 2026-08-11. [S1]
+2. **Transient false positives:** Maintainers moved full link checking to scheduled runs and proposed retries because temporary outages made unrelated PRs fail. Publication: 2022-11-16; accessed 2026-08-11. [S2]
+3. **Current timeout false positives:** A 2026 issue reports valid Envoy links marked failed due to timeout and requests a higher threshold. Publication: 2026-04-22; accessed 2026-08-11. [S9]
+4. **Rate-limit controls:** Lychee documents 429 floods and concrete mitigations; a 2026 maintainer response describes the problem as common enough to drive per-host rate limiting. Accessed 2026-08-11. [S3] [S10]
+5. **Repeated repair verification:** Dr. Link Check changed from monthly quotas to per-project capacity because users need unlimited rechecks while fixing a site. Publication: 2019-04-29; accessed 2026-08-11. [S11]
+6. **Source-location workflow:** Screaming Frog's official tutorial treats the Inlinks/source page as the necessary next step after finding a 404. Accessed 2026-08-11. [S8]
+7. **Monitoring and alerts are paid value:** Focused and suite competitors reserve frequency, scale, alerts, integrations, or API access for paid tiers. [S4] [S6] [S7]
+8. **Affordability gap:** Sitechecker review evidence praises ease/actionability but calls the subscription steep for a solo blogger; Screaming Frog reviews praise depth but call the interface technical. [S12] [S13]
 
 ## Market and Pricing Evidence
 
 ### Direction and adoption
 
-The category is mature enough that monitoring, historical comparison, exports, alerts, project limits, and crawl capacity are common paid packaging dimensions across multiple vendors. Ahrefs advertises scheduled crawls and comparison of issue-count changes; Dr. Link Check gates schedule frequency by tier; Sitechecker sells weekly/daily/12-hour monitoring; Semrush packages websites monitored and daily tracking. [Ahrefs broken-link checker](https://ahrefs.com/broken-link-checker) [Dr. Link Check pricing](https://www.drlinkcheck.com/pricing) [Sitechecker pricing](https://sitechecker.pro/account/plans/) [Semrush pricing](https://www.semrush.com/pricing/seo-ai-search/) (accessed 2026-08-06).
+Recurring audits, scheduling, alerts, crawl history, and project-based limits appear across Dr. Link Check, Screaming Frog, Ahrefs, Sitechecker, Semrush, Linkinator, and Lychee. This cross-category convergence is strong directional evidence that repeat monitoring, not only one-off scanning, is the durable use case. [S4] [S5] [S6] [S7] [S15]
 
-Public market-size publishers report growth in the broader website-monitoring market, but their baselines and forecasts conflict too much for a defensible narrow-category TAM: one estimate gives $1.803B in 2024 and 9.2% CAGR, another gives $2.45B and 13.2%, and another gives $3.8B in 2025 and 10.8%. These reports also include uptime, performance, security, and transaction monitoring beyond link quality. Therefore, no TAM or CAGR is adopted for BrokenLinkBrief. [QY Research](https://www.qyresearch.com/reports/3544938/website-monitoring) [Growth Market Reports](https://growthmarketreports.com/report/website-monitoring-market) [DataIntelo](https://dataintelo.com/report/global-website-monitoring-market) (accessed 2026-08-06).
+Google's crawler documentation confirms that 4xx/5xx and failed redirects generate Search Console errors, while 2xx can still represent a soft 404, supporting the need for evidence beyond a simplistic “status below 400 equals healthy” rule. [S16]
 
-Reliable public search-interest data was not available in the research environment, so no Google Trends index is reported.
+### Pricing range and monetization pattern
 
-### Buying and monetization patterns
+| Market layer | Evidence | Buyer interpretation |
+|---|---|---|
+| Free/open source | Linkinator, Lychee, LinkChecker | Developers expect a capable free automation baseline |
+| Focused monitoring | Dr. Link Check: $0, $13, $49, $159/month [S4] | Willingness to pay rises with project size, cadence, and reports |
+| Desktop professional | Screaming Frog: free up to 500 URLs, £199/year [S5] | One-time annual-like licensing remains attractive to technical users |
+| SEO suite entry | Sitechecker $83/month; Ahrefs Lite $129/month [S7] [S6] | Broad analytics supports higher ARPU but creates a focus/price gap |
+| Broad suite mid-market | Ahrefs $249/$449; Sitechecker $208/$375 [S6] [S7] | Agencies pay for scale, users, integrations, and reporting |
 
-- **Freemium is common:** Screaming Frog allows 500 URLs; Dr. Link Check allows two projects and 1,500 links; Ahrefs Free audits verified sites; Semrush has a free demo tier. [Screaming Frog pricing](https://www.screamingfrog.co.uk/seo-spider/pricing/) [Dr. Link Check](https://www.drlinkcheck.com/pricing) [Ahrefs Free](https://ahrefs.com/webmaster-tools) [Semrush pricing](https://www.semrush.com/pricing/seo-ai-search/) (accessed 2026-08-06).
-- **Capacity and monitoring frequency drive upgrades:** link count, sites/projects, crawl credits, schedules, API, reports, alert channels, white-labeling, and seats recur as packaging levers. Same official sources as above.
-- **Subscription fatigue is visible indirectly:** reviewers call Sitechecker pricey for a single blog and broad Semrush expensive for small businesses; focused Dr. Link Check explicitly moved away from per-check quotas because repair verification should not be penalized. [Capterra Sitechecker review](https://www.capterra.com/p/166377/Sitechecker/pricing/) [Semrush independent review](https://staquest.com/tools/semrush-site-audit) [Dr. Link Check pricing change](https://www.drlinkcheck.com/blog/pricing-changes) (accessed 2026-08-06).
-
-### Realistic pricing hypothesis
-
-For a future hosted edition, evidence supports a transparent hybrid rather than usage-only pricing:
-
-- **Free/self-hosted:** core scanner, limited local projects, CI, exports.
-- **Hosted Solo, approximately $9 to $19/month:** 3 to 5 projects, daily/weekly checks, email/webhook alerts, generous targeted rechecks.
-- **Hosted Team, approximately $39 to $69/month:** 10 to 25 projects, Slack, assignments, retention, API, multiple users.
-- **Agency, approximately $99 to $159/month:** higher link capacity, client workspaces, white-label reports, priority support.
-
-These are positioning recommendations, not measured willingness-to-pay estimates. They bracket the official $13/month entry of Dr. Link Check, its $49 professional tier, and the $83+ entry of Sitechecker while remaining far below broad Ahrefs/Semrush plans. [Dr. Link Check pricing](https://www.drlinkcheck.com/pricing) [Sitechecker pricing](https://sitechecker.pro/account/plans/) [Ahrefs pricing](https://ahrefs.com/pricing) [Semrush pricing](https://www.semrush.com/pricing/seo-ai-search/) (accessed 2026-08-06).
+Recommended commercial hypothesis, to validate rather than treat as fact:
+- Maintain a free self-hosted edition with complete core repair workflow.
+- Future hosted Starter: 3 projects, daily scans, 30-day history, email alerts, roughly $12 to $19/month.
+- Team: 10 projects, hourly/daily schedules, Slack/webhooks, 1-year history, roughly $39 to $59/month.
+- Agency: portfolio controls and branded reports, roughly $99 to $149/month.
+These ranges are positioning hypotheses derived from competitor anchors, not demonstrated willingness-to-pay for BrokenLinkBrief itself. No reliable narrow-category TAM/CAGR was found.
 
 ## Modern UX Expectations
 
 ### Category baseline
 
-1. **Persistent information architecture:** Overview, Projects, Scans/Jobs, Findings, Schedules, Integrations, Team/Settings.
-2. **Guided first run:** create project, choose crawl mode and exclusions, run a bounded preview, explain findings, optionally schedule and test an alert.
-3. **Durable, recoverable execution:** queued/running/partial/completed/failed/cancelled states, progress by source, refresh-safe job page, retries, and explicit stale data.
-4. **Actionable findings:** source page, target, anchor text, context, redirect chain, attempts, confidence, first/last seen, assignment, comments, ignore reason/expiry, and verify action.
-5. **Complete state design:** empty, loading, partial, error, disabled, success, stale, rate-limited, auth-expired, and permission-denied states at panel level.
-6. **Responsive high-volume review:** server pagination, filters in URL, bulk selection, preserved list state, column controls, accessible mobile summary.
-7. **Trust indicators:** why a finding is classified, retry timeline, last checked time, crawl identity/user-agent, privacy/retention settings, outbound-scope preview, audit trail.
-8. **Progressive disclosure:** concise backlog first, probe details and raw response evidence on demand.
-9. **Table-stakes automation:** schedules, email/Slack/webhooks, CI status, sitemap/URL-list input, exports, API, and saved filters.
+- Persistent project context and navigation for Overview, Jobs/Scans, Findings, Schedules, Integrations, and Settings.
+- Guided first run: create project, validate scope, run first scan, explain why only confirmed failures become findings, configure schedule/alert.
+- Durable job surfaces with queued, running, partial, completed, failed, and cancelled states.
+- Findings table with server pagination, filters, search, owner, source count, confidence, and workflow state.
+- Detail panel/dialog with target, all source occurrences, ordered evidence, audit, verification, and safe external links.
+- Independent empty/loading/error/stale/disabled/success states for every panel, not one global failure.
+- Responsive cards at narrow widths, no horizontal page scroll at 320 CSS pixels, and preserved critical actions at 200% zoom.
+- Trust indicators: clear data location, retention, sanitized evidence, outbound security policy, last scan time, applied policy version, and audit history.
+- Progressive disclosure: summary first, attempts/context/audit collapsed until requested.
 
-### Accessibility expectations
+WCAG 2.2 expects keyboard accessibility, visible focus, focus not obscured, reflow, status messages, and minimum target-size handling; W3C's guidance explains the importance of clear focus indicators and lists the relevant criteria. [S17] [S18]
 
-WCAG 2.2 is the current W3C Recommendation and includes keyboard operation, focus visibility/not-obscured, labels and instructions, error identification/suggestion, accessible authentication, target size, and status-message requirements. [WCAG 2.2 Recommendation](https://www.w3.org/TR/WCAG22/) [WCAG 2.2 Understanding](https://www.w3.org/WAI/WCAG22/Understanding/) (accessed 2026-08-06).
+### Existing coverage versus missing baseline
 
-BrokenLinkBrief already demonstrates several good patterns: live status regions, labels, focus movement, skip link, semantic table headers, dialog/details, and non-color badge text. Missing or unverified expectations include full keyboard/E2E testing, focus-not-obscured checks, chart alternatives, reduced motion, high zoom/reflow validation, accessible authentication, independent widget errors, and manual screen-reader validation.
-
-### What the current product meets vs. misses
-
-| Expectation | Meets | Missing / uncertain |
+| Expectation | State | Evidence in project |
 |---|---|---|
-| First-use scan | Simple URL and batch forms | No guided scope preview, sample project, or first-run checklist |
-| Result review | Filters, search, source selector, CSV | No persistent findings, anchor/context, bulk workflow, URL-state filters |
-| Monitoring | Projects, history, diff, schedule modules | Schedule administration and next-run workflow not integrated |
-| Trust | Status/reason, some security policy | Confidence evidence and retry rationale not shown |
-| Responsive UI | CSS breakpoints and scrollable tables | Dense one-page layout; no mobile finding workspace test |
-| Accessibility | Strong semantic intent | No demonstrated WCAG 2.2 AA release gate or assistive-tech validation |
-| Privacy/security | SSRF, HMAC, token auth, secret hashing primitives | Query token, no secure browser session, fragmented policy enforcement |
-| Recovery | Explicit scan errors | No cancellation, durable progress, partial retry, refresh recovery |
+| Labels, live regions, dialog focus, reduced motion | Mostly met | `app.py` dashboard and findings UI tests |
+| Exact source context and evidence | Met | `findings.py`, `finding_service.py`, `docs/findings.md` |
+| Durable job progress/cancel/retry | Missing | Synchronous scan endpoints; scheduler is separate |
+| Independent panel failures | Partial | Dashboard has local feedback but analytics aggregation remains broad |
+| Secure browser session | Missing | Query/bearer token auth only |
+| Shareable filtered views | Missing | Filters are mainly in-memory |
+| Schedule administration | Missing/partial | Scheduler/config services and docs exist, complete UI does not |
+| Integration test/delivery history | Missing | Channels exist but no cohesive registry/log UI |
+| Frontend component isolation | Missing | Dashboard remains embedded in `app.py` |
 
 ## Open-Source and Automation Opportunities
 
-1. **Adopt proven anti-noise controls from Lychee:** separate per-host concurrency, configurable retries/backoff, cache age, accepted status policy, GitHub token support, and regex exclusions. Lychee is an actively maintained Rust checker with about 3.8k GitHub stars and official documentation for rate-limit handling. [Lychee repository](https://github.com/lycheeverse/lychee) [Rate-limit docs](https://lychee.cli.rs/troubleshooting/rate-limits/) (accessed 2026-08-06). Technical fit: implement equivalent policies in Python rather than add a Rust runtime dependency.
-
-2. **Borrow crawler semantics from LinkChecker:** recursive frontier, robots.txt, cookies, authentication, URL filters, sitemap support, multiple output formats, and plugin checks. LinkChecker is Python 3.10+, GPL-licensed, and actively maintained; direct code reuse would require license review, but behavioral interoperability and test ideas are valuable. [LinkChecker repository](https://github.com/linkchecker/linkchecker) [Documentation](https://linkchecker.github.io/linkchecker/index.html) (accessed 2026-08-06).
-
-3. **Create a durable scan-job adapter:** reuse `ScheduleStore` leasing and `ScheduledScanExecutor`, but route both manual and scheduled scans through one persisted job model. Automate crash recovery, source-level retries, cancellation checkpoints, and event IDs.
-
-4. **Integrate existing internal primitives before adding dependencies:** `triage.extract_occurrences`, `confidence.classify_evidence`, `policy.validate_target`, `GovernanceStore`, and `FindingStore` already cover much of the desired foundation.
-
-5. **Automate evidence-to-workflow transitions:** repeated terminal evidence opens/updates one stable finding; recovery evidence proposes resolution; ignored findings expire; notification events emit only after state transitions; CI gates use the same classification.
-
-6. **Add sitemap and repository-document ingestion:** LinkChecker supports recursive sites and Lychee supports Markdown/HTML/reStructuredText and CI. BrokenLinkBrief can differentiate by unifying public-site monitoring with documentation repository checks under projects. [LinkChecker docs](https://linkchecker.github.io/linkchecker/index.html) [Lychee docs](https://lychee.cli.rs/) (accessed 2026-08-06).
-
-7. **Frontend extraction without a framework rewrite:** move inline HTML/CSS/JS into package assets, add a strict content-security policy, and run DOM/browser tests. This mitigates current maintainability risk while preserving the lightweight stack.
+1. **Adopt host-aware scheduling patterns from Lychee.** Per-host concurrency, retry-after handling, cache age, authentication, and specific exclusions should inform project policy design. [S3] [S10]
+2. **Match Linkinator's CI ergonomics.** Recursive Markdown/HTML/local scanning, fragment checks, skip patterns, retries, and job summaries are useful compatibility targets. [S15]
+3. **Retain LinkChecker's protocol/filter/export lessons.** It demonstrates mature recursive checking, regex restrictions, proxy/auth, robots handling, and multiple output formats. [S14]
+4. **Use standards, not crawler guesses, for HTTP classification.** Google's published handling of success, redirects, errors, and soft 404s provides a reference for explicit semantics. [S16]
+5. **Automate failed-source retry.** Durable job records can create a child job containing only failed sources, reducing network load and user waiting.
+6. **Automate expiry and recurrence.** Expired ignores should reopen only on fresh confirmed evidence, and resolved findings should reopen on recurrence with an audit trail.
+7. **Generate versioned issue payloads.** External-tracker handoff should include stable finding ID, bounded source context, evidence summary, and back-link, with idempotency to prevent duplicates.
+8. **Keep compatibility with the current stack.** SQLite leases, immutable dataclasses, standard-library HTTP, existing `FindingStore`, and optional Playwright allow these improvements without a framework rewrite.
 
 ## Differentiation Opportunities
 
-| Capability | Problem solved / target | Evidence and competitor gap | Value | Complexity | Risk | Priority | Measurable success criterion |
-|---|---|---|---|---|---|---|---|
-| Evidence-aware findings | False positives for developers, content ops | Repeated transient/rate-limit complaints; broad tools still surface raw crawl errors | Higher trust and fewer wasted investigations | MEDIUM | Misclassification could hide real failures | P0 | Reduce manually dismissed findings by at least 50% in a 4-week pilot; every finding shows attempts and reason |
-| Source occurrence and repair context | Repair owners cannot locate/edit the link | “What + where” is praised; Screaming Frog Inlinks is table stakes; internal parser already exists | Faster time-to-diagnosis | MEDIUM | Context may expose sensitive snippets | P0 | At least 95% of HTML findings include source URL and anchor text; context is escaped and bounded |
-| Durable finding lifecycle | Export handoff loses ownership and status | Competitors emphasize reports, but focused repair collaboration is weak | Moves product from detector to operator workspace | HIGH | Schema/migration and concurrency complexity | P0 | 80% of pilot findings are resolved or explicitly ignored in-product; all transitions audited |
-| Targeted Verify Fix | Full rescans are slow and quotas discourage iteration | Users need repeated verification; vendor removed per-check quota | Shortens repair closure loop | MEDIUM | Target-only check can miss source removal semantics | P0 | Median repair verification under 60 seconds; successful proof records closure evidence |
-| Calm monitoring overview | Lifetime totals do not show current risk | Monitoring demand is strong; vendor dashboards center recurring issues | Immediate operational clarity | LOW | Metric ambiguity | P1 | Overview exposes open confirmed, new, fixed, failed jobs, next run; 90% task success in usability test |
-| Project exclusions and grace rules | Auth/logout links and flaky domains create recurring noise | Review requests whitelist/blacklist; competitor tiers include rules | Better control without broad suppression | MEDIUM | Overbroad excludes hide defects | P1 | All exclusions preview affected URLs, require reason, optionally expire; zero silent global exclusions |
-| Self-hosted team and CI bridge | Users choose between local CI and expensive SaaS suites | Lychee/LinkChecker excel in CI; SaaS excels in monitoring | Unique open workflow from CI to assigned finding | HIGH | Identity synchronization | P2 | CI event links to same stable finding ID and evidence as dashboard in 100% integration tests |
+| Opportunity | Problem solved | Target user | Evidence | Competitor gap | Value | Complexity | Risk | Priority | Success criterion |
+|---|---|---|---|---|---|---|---|---|---|
+| Durable asynchronous scan jobs | Refresh/process loss; no cancel/retry | Admins, agencies | Monitoring cadence and crawl controls are table stakes [S4] [S5] | Focused tools monitor but often hide job mechanics | Reliability and operational control | HIGH | SQLite worker recovery and duplicate execution | P0 | 99% of committed jobs reach one terminal state in restart tests; failed-source retry repeats no successful source |
+| Project/host noise-control policies | 429/timeouts create false findings | Developers, docs teams | Lychee guidance and current issue evidence [S3] [S9] [S10] | Most tools expose low-level knobs without evidence-linked policy history | Fewer false positives with auditability | MEDIUM | Over-tuning may hide failures | P0 | Reduce fixture false-positive findings by at least 80% without suppressing repeated 404/410 cases |
+| Repair handoff and external issue link | Work leaves the app through CSV/manual copy | Team leads, developers | Source context and repeated verification demand [S8] [S11] | Crawlers detect but do not own repair lifecycle | Faster assignment and less duplicate work | MEDIUM | Integration auth and duplicate issues | P1 | 90% of issue creations are idempotent in retry tests and include source context plus backlink |
+| In-product schedule administration | Schedules require config/operator work | Site admins | Paid competitors monetize cadence and alerts [S4] [S7] | Self-hosted tools often require cron files | Lower onboarding friction | MEDIUM | Timezone/DST and worker state | P1 | User creates, previews, pauses, and resumes a schedule in under 2 minutes in usability tests |
+| Secure browser sessions | Query token leakage and poor account UX | All browser users | Project docs acknowledge query-token exposure | Many hosted products provide standard sessions | Trust and deployability | HIGH | Identity migration and CSRF | P1 | No credential appears in URL/history/log tests; session expiry and logout pass E2E tests |
+| Actionable portfolio overview | Cumulative charts do not direct work | Agencies/managers | Suites emphasize monitoring, reports, severity [S7] [S19] | Broad suites are expensive and noisy | Quick prioritization across projects | MEDIUM | Metric-definition drift | P2 | Every overview metric drills to the exact filtered records and reconciles to API totals |
+| Transparent self-hosted pricing/limits | Suite cost and credit anxiety | Solo operators, small teams | Pricing anchors and Dr. Link Check quota change [S4] [S6] [S7] [S11] | Broad suites bundle unrelated SEO features | Clear value and trust | LOW | Hosting economics | P2 | At least 30% hosted-trial conversion in a future instrumented pilot without per-scan overage complaints |
+
+## User Stories (BDD)
+
+```json
+[
+  {
+    "id": "US-001",
+    "epic": "Durable Scan Jobs",
+    "role": "site operator",
+    "action": "start a saved-project scan that continues after I leave the page",
+    "benefit": "I can monitor large sites without keeping one request open",
+    "story": "As a site operator, I want to start a saved-project scan that continues after I leave the page, so that I can monitor large sites without keeping one request open.",
+    "gui_flow": [
+      "User opens Saved Projects -> sees each active project and its latest health summary",
+      "User clicks Run project scan -> sees a queued job card with a stable job ID",
+      "User opens the Jobs panel -> sees queued or running state and completed-source count",
+      "User refreshes the browser -> sees the same job and preserved progress",
+      "Job completes -> user sees completed, partial, failed, or cancelled outcome with a View results action"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "an active project with valid targets",
+        "when": "the user starts a scan",
+        "then": "the API returns a job ID within 500 ms in the reference test and the job reaches a terminal state without requiring the initiating request to remain open"
+      },
+      {
+        "type": "given",
+        "text": "a project containing 10 targets and one target fails",
+        "when": "the job finishes",
+        "then": "the job is marked PARTIALLY_COMPLETED and reports 9 completed and 1 failed source"
+      },
+      {
+        "type": "given",
+        "text": "the job store cannot commit the new job",
+        "when": "the user starts a scan",
+        "then": "the UI shows a retryable error, creates no phantom job card, and logs no credential-bearing request data"
+      }
+    ]
+  },
+  {
+    "id": "US-002",
+    "epic": "Durable Scan Jobs",
+    "role": "site operator",
+    "action": "cancel a queued or running scan",
+    "benefit": "I can stop work that is no longer useful",
+    "story": "As a site operator, I want to cancel a queued or running scan, so that I can stop work that is no longer useful.",
+    "gui_flow": [
+      "User opens Jobs -> sees a queued or running job",
+      "User opens the job actions menu -> sees Cancel only for cancellable states",
+      "User clicks Cancel -> sees a confirmation dialog naming the project",
+      "User confirms -> sees Cancelling and disabled duplicate action",
+      "Worker acknowledges cancellation -> job becomes Cancelled and completed results remain inspectable"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "a queued job",
+        "when": "the user confirms cancellation",
+        "then": "the job becomes CANCELLED before any source begins and no scan notification is sent"
+      },
+      {
+        "type": "given",
+        "text": "a running job with 3 of 10 sources complete",
+        "when": "the user cancels",
+        "then": "no new source starts after cancellation is observed and the 3 completed source results remain available"
+      },
+      {
+        "type": "given",
+        "text": "a completed job",
+        "when": "the user requests cancellation through the API",
+        "then": "the server returns 409 with current state and the UI leaves the job unchanged"
+      }
+    ]
+  },
+  {
+    "id": "US-003",
+    "epic": "Durable Scan Jobs",
+    "role": "site operator",
+    "action": "retry only failed sources from a partial job",
+    "benefit": "I avoid repeating successful network work",
+    "story": "As a site operator, I want to retry only failed sources from a partial job, so that I avoid repeating successful network work.",
+    "gui_flow": [
+      "User opens a partially completed job -> sees successful and failed source groups",
+      "User expands Failed sources -> sees sanitized failure reasons",
+      "User clicks Retry failed sources -> sees a preview with the failed-source count",
+      "User confirms -> a linked retry job is created",
+      "Retry finishes -> the parent view shows the latest outcome without duplicating successful source results"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "a partial job with 2 failed sources",
+        "when": "the user retries failures",
+        "then": "the new job contains exactly those 2 normalized sources and references the parent job ID"
+      },
+      {
+        "type": "given",
+        "text": "one failed source is no longer in the project",
+        "when": "the user opens retry preview",
+        "then": "the removed source is excluded and the preview explains the exclusion"
+      },
+      {
+        "type": "given",
+        "text": "all failed sources now violate URL policy",
+        "when": "the user confirms retry",
+        "then": "the server creates no job and returns per-source validation errors without making outbound requests"
+      }
+    ]
+  },
+  {
+    "id": "US-004",
+    "epic": "Noise-Control Policies",
+    "role": "SEO operator",
+    "action": "apply a domain-specific retry and concurrency policy",
+    "benefit": "I can reduce false positives without hiding genuine failures",
+    "story": "As a SEO operator, I want to apply a domain-specific retry and concurrency policy, so that I can reduce false positives without hiding genuine failures.",
+    "gui_flow": [
+      "User opens Project Settings -> selects Noise controls",
+      "User adds a hostname rule -> sees retry count, backoff, concurrency, and accepted temporary-status fields",
+      "User enters bounded values -> sees an immediate policy summary",
+      "User saves -> sees a versioned success message",
+      "Next scan -> finding evidence identifies the applied policy and every attempt"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "a hostname rule with max concurrency 2 and two retries",
+        "when": "the scanner checks six links on that host",
+        "then": "no more than two requests are in flight and each link records no more than three total attempts"
+      },
+      {
+        "type": "given",
+        "text": "a rule overlaps a broader wildcard rule",
+        "when": "the user saves",
+        "then": "the UI previews the deterministic precedence and the most specific rule is applied in the policy test"
+      },
+      {
+        "type": "given",
+        "text": "retry count exceeds the configured platform maximum",
+        "when": "the user saves",
+        "then": "the API returns 400 with the retry field identified and no policy version is created"
+      }
+    ]
+  },
+  {
+    "id": "US-005",
+    "epic": "Noise-Control Policies",
+    "role": "content operator",
+    "action": "ignore a known exception with an expiry and reason",
+    "benefit": "expected failures stop obscuring new regressions",
+    "story": "As a content operator, I want to ignore a known exception with an expiry and reason, so that expected failures stop obscuring new regressions.",
+    "gui_flow": [
+      "User opens a finding detail dialog -> sees current classification and evidence",
+      "User clicks Ignore -> sees required reason and optional expiry fields",
+      "User enters a reason and future date -> sees the effect on alerts and active counts",
+      "User saves -> finding is labelled Ignored with expiry and audit entry",
+      "Expiry passes and confirmed evidence recurs -> finding returns to Open and appears in active filters"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "an open finding and a valid future expiry",
+        "when": "the user ignores it",
+        "then": "state becomes IGNORED, version increments by one, and an immutable audit event stores reason and expiry"
+      },
+      {
+        "type": "given",
+        "text": "an ignored finding reaches its expiry without new evidence",
+        "when": "the user lists active findings",
+        "then": "the item remains auditable and is not counted active until a new confirmed observation arrives"
+      },
+      {
+        "type": "given",
+        "text": "the reason is blank or over 500 characters",
+        "when": "the user submits",
+        "then": "the UI announces a field error and the server makes no state change"
+      }
+    ]
+  },
+  {
+    "id": "US-006",
+    "epic": "Noise-Control Policies",
+    "role": "developer",
+    "action": "see why a result is transient, bot-blocked, inconclusive, or confirmed",
+    "benefit": "I can trust automation and tune it with evidence",
+    "story": "As a developer, I want to see why a result is transient, bot-blocked, inconclusive, or confirmed, so that I can trust automation and tune it with evidence.",
+    "gui_flow": [
+      "User opens Findings -> sees classification as text, not color alone",
+      "User opens a finding -> sees latest assessment reason",
+      "User expands Probe evidence -> sees ordered method, status/error category, latency, and timestamp",
+      "User opens Policy applied -> sees the rule version used",
+      "User copies a sanitized evidence summary -> receives no headers, credentials, cookies, or response body"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "two terminal 404 or 410 observations under the active policy",
+        "when": "classification runs",
+        "then": "the assessment is CONFIRMED_BROKEN with ordered bounded attempts"
+      },
+      {
+        "type": "given",
+        "text": "a 429 is followed by a 200 response",
+        "when": "classification runs",
+        "then": "the assessment is RECOVERED or non-actionable and no new finding is created"
+      },
+      {
+        "type": "given",
+        "text": "an exception includes a credential sentinel",
+        "when": "evidence is persisted and displayed",
+        "then": "the sentinel is absent from the database, API response, UI text, and structured log"
+      }
+    ]
+  },
+  {
+    "id": "US-007",
+    "epic": "Actionable Repair Handoff",
+    "role": "repair owner",
+    "action": "create an issue from a trusted finding with source context",
+    "benefit": "I can move work into the team's existing tracker without copying data manually",
+    "story": "As a repair owner, I want to create an issue from a trusted finding with source context, so that I can move work into the team's existing tracker without copying data manually.",
+    "gui_flow": [
+      "User opens a confirmed finding -> sees source occurrences and verification history",
+      "User clicks Create issue -> sees integration, project, title, and body preview",
+      "User chooses which occurrences to include -> preview updates without exposing secrets",
+      "User confirms -> sees linked external issue ID and Open in tracker action",
+      "User returns later -> sees synchronization status and last delivery result"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "a configured issue-tracker integration and an unlinked finding",
+        "when": "the user creates an issue",
+        "then": "exactly one external issue is created with finding ID, target URL, bounded source context, and a backlink"
+      },
+      {
+        "type": "given",
+        "text": "the finding already has an external issue",
+        "when": "the user clicks Create issue",
+        "then": "the UI opens the existing link or requires explicit Create another instead of silently duplicating"
+      },
+      {
+        "type": "given",
+        "text": "the tracker returns an authentication error",
+        "when": "creation fails",
+        "then": "the finding remains unchanged, the secret is masked, and the UI shows a test-integration action"
+      }
+    ]
+  },
+  {
+    "id": "US-008",
+    "epic": "Actionable Repair Handoff",
+    "role": "team lead",
+    "action": "assign trusted findings and filter by owner and state",
+    "benefit": "responsibility remains visible across scans",
+    "story": "As a team lead, I want to assign trusted findings and filter by owner and state, so that responsibility remains visible across scans.",
+    "gui_flow": [
+      "User opens Findings -> sees project, state, classification, owner, and search filters",
+      "User selects one finding -> opens the detail dialog",
+      "User enters an assignee -> saves and receives a live success message",
+      "User closes the dialog -> list retains filters and updates the owner cell",
+      "User filters by assignee -> sees only matching findings with total count"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "an open finding at version 4",
+        "when": "the user assigns Alice with expected version 4",
+        "then": "assignee becomes Alice, version becomes 5, and audit history records the change"
+      },
+      {
+        "type": "given",
+        "text": "another session updates the finding first",
+        "when": "the user saves stale version 4",
+        "then": "the server returns 409 with the current representation and the UI preserves the typed assignee for retry"
+      },
+      {
+        "type": "given",
+        "text": "assignee text exceeds 120 characters",
+        "when": "the user saves",
+        "then": "client and server reject it and no audit event is added"
+      }
+    ]
+  },
+  {
+    "id": "US-009",
+    "epic": "Actionable Repair Handoff",
+    "role": "repair owner",
+    "action": "verify a fix and close work only with sufficient evidence",
+    "benefit": "resolution is credible and auditable",
+    "story": "As a repair owner, I want to verify a fix and close work only with sufficient evidence, so that resolution is credible and auditable.",
+    "gui_flow": [
+      "User opens a finding -> sees Verify fix as the primary action",
+      "User clicks Verify fix -> dialog becomes busy and announces verification started",
+      "System revalidates target and active source URLs -> shows source-check progress summary",
+      "Verification completes -> shows Recovered, Removed from source, Still broken, or Inconclusive",
+      "User closes dialog -> list updates while preserving filter, sort, selection, and focus"
+    ],
+    "acceptance_criteria": [
+      {
+        "type": "given",
+        "text": "the target succeeds and at least one source still contains it",
+        "when": "verification completes",
+        "then": "outcome is RECOVERED, finding becomes RESOLVED, and evidence plus audit records persist"
+      },
+      {
+        "type": "given",
+        "text": "all successfully fetched sources prove the link absent",
+        "when": "verification completes",
+        "then": "outcome is REMOVED_FROM_SOURCE and active occurrences are reconciled without deleting history"
+      },
+      {
+        "type": "given",
+        "text": "a source cannot be fetched and target evidence is insufficient",
+        "when": "verification completes",
+        "then": "outcome is INCONCLUSIVE, workflow state is unchanged, and the sanitized source failure is shown"
+      }
+    ]
+  }
+]
+```
 
 ## Priority-Ranked Development Recommendations
 
-### P0. Integrate evidence-aware classification into the normal scan path
-
-- Persist probe attempts with method, status/error, latency, timestamp, redirect chain, and scan mode.
-- Add bounded retries with exponential backoff and per-host pacing for transient classes.
-- Distinguish `CONFIRMED_BROKEN`, `TRANSIENT`, `BOT_BLOCKED`, `RECOVERED`, and `INCONCLUSIVE` using `confidence.py`.
-- Make dashboard, alerts, exports, CI, and diff logic consume one classification policy.
-- Add project-level policy for accepted statuses, retry count, grace period, and domain-specific pacing.
-
-### P0. Deliver durable findings with source occurrence and repair workflow
-
-- Convert repeated `(project, source occurrence, target)` observations into stable findings.
-- Persist all occurrences, anchor text, safe context, first/last seen, attempts, classification, workflow state, priority, owner, comments, ignore reason/expiry, and audit events.
-- Add a Findings view with URL-backed filters and a detail drawer that preserves list state.
-- Support Open, Acknowledged, In progress, Resolved, Ignored, and Reopened.
-
-### P0. Add targeted Verify Fix
-
-- From a finding, recheck the target and affected source pages.
-- If the source no longer references the target, record “removed from source”; if the target recovers, record “target recovered”; if evidence remains uncertain, keep open.
-- Never close solely on a single transport success if project policy requires repeated proof.
-
-### P1. Unify manual and scheduled work as durable jobs
-
-- Return a job ID quickly; persist queued/running/partial/completed/failed/cancelled state.
-- Reuse schedule leasing for workers; add cancellation checkpoints and retry failed sources.
-- Expose progress and refresh-safe job pages.
-
-### P1. Create scalable navigation and actionable overview
-
-- Extract static assets from `app.py`.
-- Add Overview, Projects, Jobs, Findings, Schedules, Integrations, Settings.
-- Replace cumulative totals with current backlog, newly confirmed, recently fixed, failed jobs, and next scheduled run.
-
-### P1. Strengthen browser security and accessibility
-
-- Introduce short-lived secure sessions, logout/expiry, CSRF protection, and integrated RBAC.
-- Establish WCAG 2.2 AA automated and manual release checks, including screen-reader validation and chart text alternatives. [WCAG 2.2](https://www.w3.org/TR/WCAG22/) (accessed 2026-08-06).
-
-### P2. Expand integrations only after the finding model is stable
-
-- Sitemap and repository-document ingestion.
-- Notification administration and delivery log.
-- Issue-tracker handoff with idempotent external IDs.
-- Agency portfolio summary and branded reports.
+1. **P0: Durable asynchronous jobs.** Introduce a single job model used by manual and scheduled scans, with SQLite persistence, leasing, idempotency keys, cancellation, partial completion, progress, and child retry jobs. This is the foundation for reliable monitoring, not a UI-only enhancement.
+2. **P0: Host-aware noise-control policies.** Add project defaults plus optional hostname overrides for concurrency, retries, Retry-After, timeout, cache, excluded/accepted temporary outcomes, and authentication references. Persist the applied policy version with evidence.
+3. **P1: Actionable repair handoff.** Expand the existing finding lifecycle with owner filters and one idempotent issue-tracker connector after stable job/finding events exist.
+4. **P1: Schedule administration UI.** Reuse the scheduler store, but route due work through the durable job service so manual and scheduled runs share status and history.
+5. **P1: Secure browser sessions.** Replace query-token-first browser usage with secure, expiring sessions and CSRF protection while retaining bearer tokens for API clients.
+6. **P2: Integration registry and delivery log.** Persist channel configuration references and sanitized delivery attempts; add Test connection and Retry where safe.
+7. **P2: Frontend extraction and global navigation.** Extract assets and add navigation only after the job/findings information architecture stabilizes.
 
 ## Recommended Scope for the Next Development Pass
 
-Build one complete **Trusted Finding to Verified Repair** slice:
+Deliver one coherent **Reliable Monitoring Operations** vertical slice:
 
-1. Add a migration-safe evidence/finding schema in the existing SQLite path.
-2. Wire static and SPA scans to occurrence extraction and persisted attempts.
-3. Apply `classify_evidence` consistently and show the evidence in results.
-4. Create a minimal Findings list and detail view inside the existing dashboard shell.
-5. Support assign, acknowledge, ignore-with-reason/expiry, and resolve/reopen transitions.
-6. Add Verify Fix for one finding, checking both target status and affected source occurrence.
-7. Emit notifications and CI failures only from stable finding transitions, not raw status rows.
-8. Add targeted tests, migration tests, browser DOM tests, security tests, and the complete regression suite.
+- Add `ScanJobStore` and `ScanJobService` using the configured SQLite database.
+- States: QUEUED, RUNNING, PARTIALLY_COMPLETED, COMPLETED, FAILED, CANCEL_REQUESTED, CANCELLED.
+- Manual and scheduled project scans create the same job type.
+- Add per-source progress, sanitized failures, cancellation, restart recovery, idempotent submission, and retry-failed-sources.
+- Add project defaults and hostname override policies for concurrency, retries/backoff, timeout, cache age, and temporary-status treatment.
+- Record policy version and attempt evidence against results/findings.
+- Add dashboard Jobs panel with loading, empty, progress, partial, cancelled, failure, and success states.
+- Retain current synchronous endpoints for compatibility; either wrap them around a blocking wait with strict limits or introduce additive `/api/jobs` endpoints and migrate the dashboard first.
+- Do **not** include a global frontend rewrite, billing, portfolio white-labeling, full identity/RBAC integration, or multiple issue trackers in this pass.
 
-Explicitly defer global navigation redesign, hosted billing, portfolio dashboards, issue-tracker integration, and a full asynchronous worker platform. Those depend on validating the finding workflow first.
-
-**Pass acceptance criteria:**
-
-- Every confirmed finding has stable ID, project, target, at least one source occurrence, evidence reason, first/last seen, and workflow state.
-- Transient/429/bot-blocked outcomes do not trigger confirmed-broken notification without policy evidence.
-- Verify Fix can record target recovered, source reference removed, still broken, or inconclusive.
-- Existing scan/project/history/export APIs remain compatible or are versioned explicitly.
-- Targeted and full regression tests run after implementation; migrations are tested against a copy of an earlier database.
+Pass-level success metrics:
+- Restart test proves no committed job is lost or executed twice.
+- Cancellation prevents new sources from starting after acknowledgement.
+- Retry-failed-sources contains exactly the eligible failures.
+- Rate-limit fixtures show at least 80% fewer false actionable findings than the default uncontrolled fixture while repeated 404/410 remains confirmed.
+- Existing 1.3.1 APIs, exports, findings, project lifecycle, and 838-test regression baseline remain compatible.
 
 ## Risks, Unknowns, and Assumptions
 
-- **No first-party usage telemetry or interviews were available.** Community and competitor evidence validates themes, not exact feature adoption.
-- **Narrow TAM is unknown.** Broad monitoring reports are inconsistent and include categories beyond broken links.
-- **False-positive policy is domain-sensitive.** A 403 may be genuinely broken for users or only blocked for bots; classification must expose evidence and allow project policy.
-- **Source context may contain sensitive content.** Persist only bounded, escaped, redacted context, with retention controls.
-- **SQLite can support the immediate self-hosted scope but needs explicit concurrency and migration testing.** A hosted multi-tenant edition may later need a different database.
-- **Playwright increases operational cost.** Rendering should remain opt-in or policy-driven, with resource limits and job isolation.
-- **Authentication changes can break existing query-token users.** Preserve an API compatibility path while deprecating browser query tokens.
-- **Licensing matters for OSS reuse.** LinkChecker is GPL; borrow behavior and standards unless legal review approves code reuse. Lychee is Apache-2.0/MIT-oriented but is Rust and should not be introduced casually.
-- **Competitor prices can change.** Values in this report were accessed on 2026-08-06 and should be rechecked before pricing decisions.
-- **Success metrics require instrumented pilots.** Dismissal rate, time-to-diagnosis, time-to-verify, recurrence, and notification precision should be captured with privacy-safe event data.
+- **No product telemetry or interviews were supplied.** User segments and workflow frequency are triangulated from public behavior and project design, not measured BrokenLinkBrief usage.
+- **No reliable narrow TAM/CAGR.** Broad website-monitoring or SEO-market reports are not accepted as a precise market size for this product.
+- **SQLite concurrency.** Durable jobs are feasible for a compact self-hosted deployment, but multi-process lease recovery and write contention require explicit tests.
+- **Policy misuse.** Accepting 429 or broad exclusions can hide genuine outages; controls need defaults, warnings, evidence, and bounded scope.
+- **Legal/privacy boundaries.** Source context may contain sensitive content; continue bounded extraction and avoid storing bodies, credentials, headers, or cookies.
+- **Authentication references.** Host-specific credentials can improve reliability but materially expand secret-management scope; implement references to environment/secret stores, not plaintext database values.
+- **Issue-tracker assumptions.** Demand for handoff is inferred from export and team workflows. Validate the first connector with interviews before supporting several vendors.
+- **Pricing hypotheses are unvalidated.** Competitor anchors support ranges, not conversion forecasts.
+- **Accessibility requires manual evidence.** Contract tests alone cannot prove WCAG 2.2 AA; keyboard, zoom/reflow, contrast, and screen-reader checks remain release gates.
+- **Current source count/test count are archive observations.** They are not claims that all tests were executed during this research-only phase.
 
 ## Sources
 
-External sources accessed 2026-08-06 unless a publication date is shown on the source:
-
-1. Reddit r/webdev, “Is there a tool for checking broken links?” https://www.reddit.com/r/webdev/comments/15o2xye/is_there_a_tool_for_checking_broken_links/
-2. Reddit r/SEO, “Broken links hunting best tools.” https://www.reddit.com/r/SEO/comments/ndvmht/broken_links_hunting_best_tools/
-3. GitHub, digipres/awesome-digital-preservation issue #6, “Link checker false positives.” https://github.com/digipres/awesome-digital-preservation/issues/6
-4. GitHub, asyncapi/.github issue #199, “Link checker having an insane amount of false positives.” https://github.com/asyncapi/.github/issues/199
-5. ChromeStats, “Broken Link Checker user reviews and ratings.” https://chrome-stats.com/d/nibppfobembgfmejpjaaeocbogeonhch/reviews
-6. Screaming Frog, official pricing. https://www.screamingfrog.co.uk/seo-spider/pricing/
-7. Screaming Frog, “How To Find Broken Links Using The SEO Spider.” https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/?r_done=1
-8. Ahrefs, official plans and pricing. https://ahrefs.com/pricing
-9. Ahrefs, Webmaster Tools / Ahrefs Free. https://ahrefs.com/webmaster-tools
-10. Ahrefs, free broken-link checker product page. https://ahrefs.com/broken-link-checker
-11. Semrush, official SEO & AI Search pricing. https://www.semrush.com/pricing/seo-ai-search/
-12. Semrush, official Site Audit issue catalog. https://www.semrush.com/kb/542-site-audit-issues-list
-13. Semrush Developer, Site Audit API. Updated 2026-07-15. https://developer.semrush.com/api/projects/site-audit/
-14. Reddit r/SEMrush, “Site Audit Returning 00's of broken internal links...” https://www.reddit.com/r/SEMrush/comments/112uovj/site_audit_returning_00s_of_broken_internal_links/
-15. Staquest, “Semrush Site Audit Review, Pricing & Alternatives (2026).” https://staquest.com/tools/semrush-site-audit
-16. Dr. Link Check, official pricing. https://www.drlinkcheck.com/pricing
-17. Dr. Link Check, “Pricing Changes,” 2019-04-29. https://www.drlinkcheck.com/blog/pricing-changes
-18. Sitechecker, official plans and pricing. https://sitechecker.pro/account/plans/
-19. Capterra, Sitechecker pricing and user review evidence. https://www.capterra.com/p/166377/Sitechecker/pricing/
-20. Lychee GitHub repository. https://github.com/lycheeverse/lychee
-21. Lychee documentation, “Rate Limits.” https://lychee.cli.rs/troubleshooting/rate-limits/
-22. Lychee documentation homepage. https://lychee.cli.rs/
-23. LinkChecker GitHub repository. https://github.com/linkchecker/linkchecker
-24. LinkChecker official documentation. https://linkchecker.github.io/linkchecker/index.html
-25. W3C, Web Content Accessibility Guidelines (WCAG) 2.2 Recommendation, 2024-12-12. https://www.w3.org/TR/WCAG22/
-26. W3C, Understanding WCAG 2.2. https://www.w3.org/WAI/WCAG22/Understanding/
-27. QY Research, “Global Website Monitoring Market Research Report 2025,” published 2025-08-05. https://www.qyresearch.com/reports/3544938/website-monitoring
-28. Growth Market Reports, “Website Monitoring Market Research Report 2033.” https://growthmarketreports.com/report/website-monitoring-market
-29. DataIntelo, “Website Monitoring Market Research Report 2034,” updated 2026-04. https://dataintelo.com/report/global-website-monitoring-market
+1. **[S1]** Reddit r/webdev, “Is there a tool for checking broken links?” Published 2023-08-11. https://www.reddit.com/r/webdev/comments/15o2xye/is_there_a_tool_for_checking_broken_links/ Accessed 2026-08-11.
+2. **[S2]** ACCESS-Hive GitHub, “Markdown link check false positives #227.” Published 2022-11-16. https://github.com/ACCESS-Hive/access-hive.github.io/pull/227 Accessed 2026-08-11.
+3. **[S3]** Lychee official documentation, “Rate Limits.” https://lychee.cli.rs/troubleshooting/rate-limits/ Accessed 2026-08-11.
+4. **[S4]** Dr. Link Check, “Pricing.” https://www.drlinkcheck.com/pricing Accessed 2026-08-11.
+5. **[S5]** Screaming Frog, “Pricing.” https://www.screamingfrog.co.uk/seo-spider/pricing/ Accessed 2026-08-11.
+6. **[S6]** Ahrefs, “Plans & Pricing.” https://ahrefs.com/pricing Accessed 2026-08-11.
+7. **[S7]** Sitechecker, “Plans & Pricing.” https://sitechecker.pro/account/plans/ Accessed 2026-08-11.
+8. **[S8]** Screaming Frog, “How To Find Broken Links Using The SEO Spider.” https://www.screamingfrog.co.uk/seo-spider/tutorials/broken-link-checker/ Accessed 2026-08-11.
+9. **[S9]** llm-d-router GitHub, “False positives in Check Markdown Links #864.” Published 2026-04-22. https://github.com/llm-d/llm-d-router/issues/864 Accessed 2026-08-11.
+10. **[S10]** Lychee GitHub Discussion #2033, “Suddenly have 429 with developer.hashicorp.com.” Published 2026-02-06. https://github.com/lycheeverse/lychee/discussions/2033 Accessed 2026-08-11.
+11. **[S11]** Dr. Link Check Blog, “Pricing Changes.” Published 2019-04-29. https://www.drlinkcheck.com/blog/pricing-changes Accessed 2026-08-11.
+12. **[S12]** Capterra, “Sitechecker Pricing,” including published user review on solo-blogger price sensitivity. https://www.capterra.com/p/166377/Sitechecker/pricing/ Accessed 2026-08-11.
+13. **[S13]** Techjockey, “Screaming Frog Reviews 2026: Pros & Cons and Ratings.” https://www.techjockey.com/reviews/screaming-frog Accessed 2026-08-11.
+14. **[S14]** LinkChecker official documentation, “LinkChecker.” https://linkchecker.github.io/linkchecker/index.html Accessed 2026-08-11.
+15. **[S15]** Justin Beckwith, “Linkinator - Broken Link Checker & Website Crawler.” https://jbeckwith.com/projects/linkinator Accessed 2026-08-11.
+16. **[S16]** Google for Developers, “How HTTP status codes affect Google's crawlers.” Updated 2026-02-04. https://developers.google.com/crawling/docs/troubleshooting/http-status-codes Accessed 2026-08-11.
+17. **[S17]** W3C WAI, “Understanding WCAG 2.2.” https://www.w3.org/WAI/WCAG22/Understanding/ Accessed 2026-08-11.
+18. **[S18]** W3C WAI, “Understanding Success Criterion 2.4.13: Focus Appearance.” https://www.w3.org/WAI/WCAG22/Understanding/focus-appearance Accessed 2026-08-11.
+19. **[S19]** Semrush, “Technical SEO audit / Site Audit features.” https://www.semrush.com/features/site-audit/ Accessed 2026-08-11.
+20. **[S20]** GitHub Docs, “Rate limits for the REST API.” https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api Accessed 2026-08-11.
+21. **[S21]** GitHub, `JustinBeckwith/linkinator` repository. https://github.com/JustinBeckwith/linkinator Accessed 2026-08-11.
