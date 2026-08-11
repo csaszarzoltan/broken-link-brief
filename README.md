@@ -1027,3 +1027,5 @@ If verification is inconclusive, the finding remains unchanged and the dashboard
 ### Reliable Monitoring Operations
 
 Saved projects can now create durable background scan jobs through `POST /api/projects/{project_id}/jobs`. The dashboard includes an accessible **Scan jobs** region with persisted progress and terminal outcomes. Jobs can be cancelled with optimistic versions and partial/failed jobs can preview or create a retry containing only eligible failed sources. Project scan policies are immutable, versioned records with conservative defaults and exact-host overrides. See [docs/scan-jobs.md](docs/scan-jobs.md) and [docs/scan-policies.md](docs/scan-policies.md).
+
+Durable jobs now use worker leases so interrupted work can be recovered without repeating committed source results. Safe scan observations may be cached per project and policy fingerprint when a non-zero policy TTL is configured; transient evidence is never eligible.

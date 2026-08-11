@@ -2,88 +2,94 @@
 
 ## Executive Summary
 
-This pass will deliver a single coherent vertical slice named **Reliable Monitoring Operations** with two integrated features:
+This pass is a focused **Reliable Monitoring Operations Completion** pass. It does not add a new product direction. It completes and hardens the two research-validated P0 features that the preceding development report marks partial: **durable scan-job reliability and operations UX** (US-001 through US-003) and **executable noise-control policy with finding provenance** (US-004 through US-006).
 
-1. **Durable scan jobs** satisfying US-001, US-002, and US-003. Manual saved-project scans and scheduled scans will use one SQLite-backed job model with stable IDs, leases, restart recovery, per-source progress, cancellation, partial completion, and retry of eligible failed sources.
-2. **Project and host noise-control policies** satisfying US-004, US-005, and US-006. Projects will gain versioned defaults and optional exact-host overrides for timeout, concurrency, bounded retries, backoff, `Retry-After`, cache reuse, and temporary-status treatment. Every detailed observation will identify the applied policy version. Existing finding ignore/expiry and evidence views will be completed and regression-tested as part of this feature, not reimplemented.
+The current tree contains useful foundations but does not yet satisfy the approved behavior contract. Jobs persist and support basic cancellation/retry, but there is no durable lease heartbeat or recovery, no complete job detail/cancel/retry UI, no adaptive polling, and no scheduled-executor unification. Policies persist and resolve exact-host overrides, but they do not control request attempts, concurrency, backoff, Retry-After, or cache behavior; policy provenance does not reach findings; and expiry-only ignore behavior is not implemented to the required fresh-evidence rule. The plan therefore chooses completion over expansion.
 
-The pass deliberately excludes issue-tracker handoff, browser sessions/RBAC integration, global navigation, billing, and a frontend rewrite. Durable jobs and evidence-linked policy controls are the highest-value, mutually reinforcing research priorities: jobs make monitoring recoverable, while host policies reduce false actionable findings from timeouts and HTTP 429 responses. The existing trusted-finding and Verify Fix workflow remains the product core and must continue to consume the same evidence model without breaking existing APIs or exports.
+The pass will deliver two complete integrated features:
 
-No mandatory runtime dependency will be added. The implementation will use `sqlite3`, `threading`, `queue`, `urllib`, existing project/scheduler/finding services, and the embedded vanilla-JavaScript dashboard. Existing synchronous `/scan` and `/scan-batch` contracts remain compatible. New project-job APIs are additive.
+1. **Recoverable scan jobs and complete Jobs workspace.** Add lease ownership, heartbeat, expired-lease recovery, atomic source completion, schedule-to-job execution, paginated APIs, adaptive dashboard polling, job detail, cancellation, retry preview/create, and all specified UI states.
+2. **Applied scan policies and evidence provenance.** Make project/exact-host policy values govern detailed probing and job execution; add bounded cache behavior; persist immutable effective-policy snapshots on observations; expose provenance in finding detail; and implement ignore expiry that reopens only on fresh confirmed evidence.
+
+No new runtime dependency is required. The existing standard-library HTTP server, SQLite database, vanilla JavaScript dashboard, optional Playwright integration, and current scanner/finding services remain the architecture. Existing synchronous ad-hoc APIs and export formats remain backward compatible.
 
 ## Current-State Validation
 
-The supplied project matches `research-findings.md` and the recommendations are actionable:
+The research report remains aligned with the actual product and its recommendations are actionable. The supplied project is BrokenLinkBrief 1.4.0 and contains 107 files. Its current implementation includes:
 
-- `src/brokenlinkbrief/package.py` implements static scanning, batch scanning, URL validation, history, `ScanObservation`, and `scan_link_detailed`.
-- `src/brokenlinkbrief/app.py` delivers the standard-library HTTP server and embedded dashboard, including projects, single/batch scans, history, analytics, and trusted findings.
-- `src/brokenlinkbrief/projects.py` supplies migration-aware SQLite project persistence and the configured database path.
-- `src/brokenlinkbrief/scheduler.py`, `scheduled_scan.py`, and `scheduled_projects.py` provide schedule persistence, leasing, and scheduled execution, but do not share a durable user-visible job model with manual scans.
-- `src/brokenlinkbrief/confidence.py`, `findings.py`, and `finding_service.py` already retain bounded attempts, confidence assessment, lifecycle state, ignore expiry, evidence, source occurrences, and verification.
-- `src/brokenlinkbrief/app.py` still starts browser single and batch scans as request-bound operations. There is no stable job ID, restart-safe progress, cancellation, or failed-source retry.
-- Existing retry behavior is scanner-level and not exposed as a versioned project/host policy. Evidence does not identify the policy revision that produced it.
-- The archive contains 98 files, 26 source modules, 43 Python test modules, and 251 statically discoverable top-level test functions. The latest development report records a prior full regression of 838 passed, 45 skipped, one xpassed, and zero failed. Those figures are historical evidence, not a result claimed by this planning phase.
-- `pyproject.toml` configures pytest-compatible packaging and Ruff but no type checker, formatter, coverage plugin, or lab gate scripts.
-- The required lab gates (`tdd-gate-v3.sh`, `bdd-gate.sh`, `security-gate.sh`, `doc-sync-check.sh`, `ui-gate.sh`, and `git-push-verify.sh`) are not present in the supplied tree. The development phase must invoke them from the Micro-SaaS Lab environment if available. It must not fabricate pass results or add placeholder gate scripts merely to pass the names. If unavailable, completion is blocked under the lab policy until the external gate toolchain is mounted or supplied.
+- `src/brokenlinkbrief/scan_jobs.py`: job/source/idempotency tables, queued claim, source completion, basic finalization, queued/running cancel, and source listing.
+- `src/brokenlinkbrief/job_service.py`: saved-project job creation, target revalidation, process-local worker loop, sequential source execution, cancellation boundary, and failed-source retry preview/create.
+- `src/brokenlinkbrief/scan_policy.py`: bounded policy model, immutable versions, exact-host normalization, host-override precedence, and policy fingerprint.
+- `src/brokenlinkbrief/app.py`: additive jobs and policy APIs plus a basic Scan Jobs dashboard list.
+- BDD-tagged tests for US-001 through US-004. The preceding report records 846 passed, 45 skipped, and one xpass, but explicitly marks US-001 and US-004 partial and US-005/US-006 incomplete.
 
-The research BDD section contains nine complete stories across three epics. This plan selects the six stories belonging to the two P0 epics. Their GUI flows and measurable criteria are retained below and refined by the requirements, UI, API, and test contracts.
+Material gaps verified from source and report:
+
+- `scan_jobs.py` has no `worker_id`, `lease_expires_at`, or `heartbeat_at` fields and no recovery transaction.
+- A claimed job is simply changed to `RUNNING`; a crash can leave it permanently stuck.
+- Source transition methods do not enforce ownership, expected state, or optimistic version checks; finalization can race.
+- `job_service.py` runs sources sequentially and ignores effective policy concurrency, attempts, backoff, Retry-After, and cache.
+- Schedule execution still has a separate orchestration path and does not create deterministic durable job records.
+- Jobs UI lacks project/state filters, automatic polling, job-detail dialog, cancel confirmation, retry preview/create, stale-data handling, and focus restoration.
+- Policy UI is absent.
+- Policy snapshots are retained only as job version numbers, not as canonical effective values on evidence.
+- `FindingStore` does not implement the planned “expired, awaiting fresh evidence” contract with a single audited reopen on confirmed recurrence.
+- Official lab gate scripts, Git metadata, Ruff, coverage plugin, pip, and graphical browser tooling were unavailable in the last phase. This plan treats official gate availability and push verification as external completion criteria, not product features and not permission to create fake scripts.
+
+The selected scope is achievable in one pass because the foundational tables, APIs, scanner, project store, finding service, dashboard patterns, and tests already exist. It requires completion and refactoring, not a framework rewrite.
 
 ## Research Priorities
 
-| Candidate | Research priority | Evidence-backed value | One-pass feasibility | Decision |
+| Candidate | Research rank | Current state | Value/risk assessment | Decision |
 |---|---:|---|---|---|
-| Durable asynchronous scan jobs | P0 | Prevents refresh/process loss; enables cancel and failed-source retry | High-medium using existing SQLite leases and scan services | Selected |
-| Project/host noise-control policies | P0 | Reduces timeout/429 false positives and makes evidence tunable | High-medium because detailed probing already exists | Selected |
-| Repair handoff and issue tracker | P1 | Reduces CSV/manual transfer | Medium, but depends on stable job/finding events and secret management | Deferred |
-| Schedule administration UI | P1 | Makes recurring monitoring accessible | Medium; selected scope only routes schedule execution through jobs | Deferred UI |
-| Secure browser sessions | P1 | Removes query-token exposure | Low for this pass because identity, cookies, CSRF, and migration are cross-cutting | Deferred |
-| Integration registry/delivery log | P2 | Improves alert troubleshooting | Medium-low before stable job events | Deferred |
-| Portfolio overview | P2 | Helps agencies triage across projects | Medium after job metrics stabilize | Deferred |
-| Frontend extraction/global navigation | P2 | Improves maintainability and information architecture | Medium, but unrelated to reliability core | Deferred |
-| Hosted packaging/billing | P2 | Monetization | Low without hosted demand validation | Deferred |
-
-Scope boundary: this pass supports scans of **saved active projects** as durable jobs. Ad-hoc `/scan` and `/scan-batch` remain synchronous for backward compatibility and do not create durable jobs. Scheduled project execution will create the same job records, but complete schedule-management UI is deferred.
+| Recoverable durable jobs | P0 | Partial | Highest reliability value; existing foundation lowers risk | Selected |
+| Complete job cancellation/retry UX | P0 | Partial backend, thin UI | Required to make durable jobs sellable and operable | Selected |
+| Executable project/host policy | P0 | Persistence only | Directly addresses timeout/429 false positives | Selected |
+| Ignore expiry on fresh evidence | P0 within noise controls | Not implemented | Small, high-trust lifecycle completion | Selected |
+| Finding policy provenance | P0 within explainability | Missing | Necessary to audit and tune policies safely | Selected |
+| Issue-tracker handoff | P1 | Not started | Valuable but depends on stable job/finding events | Deferred |
+| Schedule administration UI | P1 | Service/config only | Job execution unification selected; CRUD UI deferred | Deferred |
+| Secure browser sessions/RBAC | P1 | Not delivered | Cross-cutting identity/CSRF migration | Deferred |
+| Global navigation/frontend extraction | P2 | Not started | Avoids unrelated rewrite during reliability completion | Deferred |
+| Integration delivery log | P2 | Not started | Requires stable event model and secret references | Deferred |
+| Portfolio reporting/billing | P2 | Not started | Requires hosted and organization validation | Deferred |
 
 ## Selected Scope for This Pass
 
-### Feature A: Durable Scan Jobs
+### Feature 1: Recoverable Durable Jobs and Complete Jobs Workspace
 
-A new durable job service will accept an active saved project, snapshot its ordered normalized target list and selected scan options, commit a `QUEUED` job, and return a stable job representation immediately. A background worker in the application process will lease queued work, scan one source at a time within the job's configured project concurrency, persist per-source states and sanitized results, and finalize the job exactly once.
+Complete the job state machine and worker contract. Add lease fields and an atomic claim/recovery protocol. Each running job has one worker owner, a 30-second lease, and a heartbeat at least every 5 seconds while active. Startup and periodic recovery requeue an expired job with pending/running sources; any source left `RUNNING` without an atomically committed result returns to `PENDING`. Completed/failed/cancelled source rows never return to pending. A recovered job retains the same job ID and does not repeat committed source work.
 
-Supported job states are `QUEUED`, `RUNNING`, `PARTIALLY_COMPLETED`, `COMPLETED`, `FAILED`, `CANCEL_REQUESTED`, and `CANCELLED`. Source states are `PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, and `EXCLUDED`. Terminal job states are immutable. Cancellation is cooperative: once `CANCEL_REQUESTED` is observed, no new source starts; in-flight source requests complete within their configured timeout; remaining pending sources become `CANCELLED`.
+Source execution uses a bounded executor. The project default `max_concurrency` sets the job-wide limit, and exact-host policy sets a per-host limit. Cancellation remains cooperative: no source begins after `CANCEL_REQUESTED` is observed, in-flight work may finish within timeout, and remaining pending sources become cancelled. Finalization is one transactional compare-and-set operation and terminal states are immutable.
 
-A partial or failed job can create one child retry job containing exactly the currently eligible failed sources. Eligibility requires that the source still belongs to the active project and passes URL policy at retry creation. Removed sources are reported as exclusions. Unsafe sources generate per-source validation errors and prevent retry creation when no eligible source remains. Idempotency keys prevent duplicate create, cancel, and retry effects.
+Scheduled scans create the same job type with origin `SCHEDULED` and deterministic idempotency key derived from schedule ID plus due slot. `ScheduledScanExecutor` remains source-compatible through an adapter that creates/waits for a job and converts the terminal job representation to the legacy result object.
 
-### Feature B: Project and Host Noise-Control Policies
+Complete the Jobs workspace: filters, automatic polling, empty/loading/stale/error/success states, semantic job cards, detail dialog, source filters, cancel confirmation, retry preview/create, parent/child navigation, focus restoration, and responsive mobile cards.
 
-Each project will have one active versioned scan policy and zero or more exact-host overrides. Wildcard host rules are intentionally excluded to avoid ambiguous precedence and deceptive breadth. Policy fields:
+### Feature 2: Executable Noise-Control Policies and Finding Provenance
 
-- `timeout_seconds`: decimal, minimum 1.0, maximum 60.0, default 10.0.
-- `max_concurrency`: integer, 1 to 20, default 5 for durable jobs.
-- `max_attempts`: integer, 1 to 3 total probe attempts, default 2.
-- `backoff_seconds`: decimal, 0 to 10.0, default 0.5; tests inject a no-sleep clock.
-- `respect_retry_after`: boolean, default true; numeric `Retry-After` values are capped at 30 seconds. HTTP-date values are supported only when they resolve to 0 through 30 seconds.
-- `cache_ttl_seconds`: integer, 0 to 86400, default 0; only successful or terminal 404/410 detailed observations may be reused, never security failures or inconclusive transport errors.
-- `temporary_statuses`: fixed selectable subset of 408, 425, 429, 500, 502, 503, and 504, default 408/429/500/502/503/504. These remain retryable/non-actionable until attempt policy is exhausted.
+Apply the existing versioned policy model to actual network behavior. At job creation, snapshot the complete canonical policy document, not only its version number. For each discovered target, resolve an effective exact-host policy and pass an immutable `EffectivePolicy` to the detailed probe. The probe enforces timeout, maximum attempts, backoff, Retry-After cap, temporary statuses, and injects clock/sleeper/requester for deterministic tests. Job coordination enforces project and per-host concurrency.
 
-Exact-host override wins over project default; project default wins over built-in defaults. Scheme, port, path, query, and subdomain do not participate in override matching beyond the normalized lowercase ASCII hostname. The effective immutable policy snapshot and policy version are stored on every job and detailed evidence record to keep old results reproducible.
+Add a project-scoped observation cache keyed by normalized target URL and effective-policy fingerprint. Default TTL remains zero. Eligible cached values are successful outcomes and terminal repeated 404/410 evidence only. Transport failures, unsafe targets, bot-blocked, inconclusive, and single-attempt terminal failures are never cached. Cache is never shared across projects and expired entries are removed opportunistically.
 
-The existing finding Ignore action remains the only finding-level suppression mechanism. This pass completes its UI wording and expiry/recurrence contract but does not add a second suppression table. Expired ignores return to active review only when fresh confirmed evidence is processed, matching US-005 and preventing time-only state churn.
+Every persisted finding evidence group records policy version, policy fingerprint, rule type, exact hostname, effective values, and whether evidence came from cache. Finding detail exposes these fields. The dashboard adds a complete Scan Policy dialog and a Policy Applied block in finding details. Copy Evidence Summary uses already-sanitized loaded data.
+
+Complete ignore semantics: expiry alone is read-only and displays “Expired, awaiting fresh confirmed evidence.” The first later `CONFIRMED_BROKEN` observation atomically reopens the finding once, clears active ignore fields but retains prior reason/expiry in audit metadata, increments the version once, and records `IGNORE_EXPIRED_REOPENED`. Non-confirmed evidence does not reopen.
 
 ## Deferred Scope and Rationale
 
-1. **Issue-tracker handoff and synchronization.** Prerequisites: stable job/finding event IDs, secret-reference model, integration registry, idempotent delivery log. Suggested phase: Repair Integrations.
-2. **Full schedule administration UI.** This pass unifies execution records only. CRUD, timezone preview, pause/resume, and DST UX follow after job reliability is proven. Suggested phase: Monitoring Administration.
-3. **Secure browser sessions and delivered RBAC.** Requires identity provisioning, cookie/CSRF policy, logout/expiry, recovery, and deployment migration. Suggested phase: Security and Multi-user Foundation.
-4. **Notification administration and delivery log.** Should subscribe to stable job/finding transitions rather than raw scan responses. Suggested phase: Integrations and Delivery.
-5. **Global navigation and extracted frontend assets.** Defer until Jobs and Findings establish the final information architecture. Suggested phase: UX Scale-up.
-6. **Portfolio dashboard and branded reports.** Depends on organization delivery, project isolation, and stable job metrics. Suggested phase: Agency Operations.
-7. **Hosted billing, quotas, and plan enforcement.** Requires hosted product validation and infrastructure economics. Suggested phase: Commercialization.
-8. **Wildcard or regex host policies.** Exact-host rules are safer and sufficient for the initial validation. Suggested phase: Advanced Noise Controls.
-9. **Credential storage or authenticated browser crawling.** This pass accepts no plaintext secrets and adds no secret vault. Suggested phase: Authenticated Targets.
-10. **Distributed worker cluster or external queue.** SQLite single-deployment leasing is the selected architecture. Suggested phase: Scale-out Operations if telemetry proves need.
-11. **Ad-hoc scan jobs.** Existing ad-hoc APIs remain synchronous; durable jobs require saved project identity. Suggested phase: Jobs Generalization.
-12. **Comments, labels, due dates, and bulk finding actions.** Valuable but unrelated to reliability foundation. Suggested phase: Team Repair Workflow.
+1. **Issue-tracker integration:** stable job/finding event IDs are a prerequisite. Future phase: Repair Integrations.
+2. **Schedule management screens:** this pass unifies execution only; CRUD, timezone preview, pause/resume, and DST UI remain a separate Monitoring Administration phase.
+3. **Secure sessions and delivered RBAC:** requires identity, cookies, CSRF, expiration, recovery, and deployment migration. Future phase: Security Foundation.
+4. **Notification registry and delivery log:** should consume stable terminal job/finding events. Future phase: Delivery Operations.
+5. **Global navigation and extracted frontend bundle:** unrelated to finishing the selected workflows. Future phase: UX Scale-up.
+6. **Wildcard, regex, or path policy rules:** exact-host rules remain deliberately deterministic. Future phase: Advanced Noise Controls.
+7. **Authenticated targets and secret storage:** policy continues to contain no secrets. Future phase: Authenticated Scanning.
+8. **Distributed external queue:** SQLite leasing remains the selected single-deployment design. Future phase only if telemetry demonstrates multi-node need.
+9. **Ad-hoc durable jobs:** saved projects remain required for durable identity. Future phase: Job Generalization.
+10. **Finding comments, labels, due dates, and bulk changes:** unrelated to reliability completion. Future phase: Team Repair Workflow.
+11. **Portfolio reporting and white-label exports:** requires organization delivery. Future phase: Agency Operations.
+12. **Hosted billing and quotas:** requires hosted demand validation and infrastructure economics. Future phase: Commercialization.
 
 ## User Stories (BDD)
 
@@ -304,490 +310,274 @@ The existing finding Ignore action remains the only finding-level suppression me
 
 ## Product Requirements
 
-### PR-1: Durable project scan creation and restart-safe execution
+### PR-1: Lease-owned execution and restart recovery
 
-**Research problem and evidence:** Request-bound scans cannot survive refreshes or process interruptions. Competitors expose scheduled/controlled crawls, and the research recommends durable jobs as P0.
+**Evidence and stories:** research P0 durable jobs; US-001.
 
-**Stories:** US-001.
+**Behavior:** extend job schema with `worker_id`, `lease_expires_at`, and `heartbeat_at`; atomically claim one queued or expired job; heartbeat every 5 seconds; lease duration 30 seconds; recover expired jobs and orphaned running sources; commit each source result and job counts transactionally.
 
-**Behavior:**
-- `POST /api/projects/{project_id}/jobs` validates the active project, snapshots ordered targets and effective policy, commits a queued job, wakes the worker, and returns HTTP 202.
-- The request returns after the database commit, not after scanning.
-- On application startup, expired `RUNNING` leases become `QUEUED` if they have pending sources; a source previously marked `RUNNING` becomes `PENDING` unless its result was committed atomically.
-- The worker claims jobs with `BEGIN IMMEDIATE`, a worker ID, lease expiry, and heartbeat. One job can be leased by only one worker at a time.
-- Per-source results are committed independently, so already completed source work survives restart.
-- Job counts are derived from source rows and returned consistently.
+**Inputs:** worker ID 1-128 printable characters, injected UTC clock, lease duration 30 seconds, heartbeat interval 5 seconds.
 
-**Inputs:** project ID; optional idempotency key header; optional `render_js` boolean only when every project target uses the same mode. Default is static mode.
+**Outputs:** existing job representation plus worker/lease timestamps only for authenticated detail APIs; list API omits worker ID.
 
-**Outputs:** stable job representation with ID, project ID/name snapshot, state, source counts, timestamps, policy version, parent job ID, and links to detail/results.
+**Rules:** one active lease per job; only current owner may start/finish a source; completed sources are immutable; recovering a source is allowed only if state is RUNNING and no result/terminal timestamp exists; terminal jobs are never recovered.
 
-**Validation/business rules:** project must exist, be active, and contain 1 to 50 targets; every snapshotted target is revalidated before job commit and again before network use; idempotency key length 1 to 128 ASCII characters per authenticated token scope; same key and same request returns original job, same key and different request returns 409.
+**Failures:** a lost lease causes the old worker's next write to return `JobLeaseLost`; the coordinator stops processing that job. Database lock retries use three bounded attempts with 25/50/100 ms injected backoff, then sanitized failure logging.
 
-**Failures:** database commit failure returns 500 with `JOB_CREATE_FAILED`; no phantom job is exposed. Unsafe target returns 400 with per-source details and no job. Worker failure leaves lease recovery possible. A completed source is never rescanned after recovery.
+**Compatibility:** additive columns and fields; migration is idempotent; older 1.4.0 databases open without reset; current job IDs/states remain valid.
 
-**Compatibility:** no existing endpoint or output field changes. Existing Run project scan button migrates to job creation but ad-hoc scan buttons keep current behavior.
+**Acceptance:** restart test commits 3 of 10 sources, expires the lease, opens a new store/coordinator, completes exactly 7 more sources, and ends with one terminal state; two concurrent workers claim one job only once; stale owner cannot commit; API create returns in under 500 ms while scanner blocks at least one second.
 
-**Acceptance:**
-- Reference integration test measures API response under 500 ms with a scanner blocked for at least 1 second, proving request/execution separation.
-- Restart fixture preserves job ID and completed-source count and reaches exactly one terminal state.
-- Ten-source fixture with one source failure ends `PARTIALLY_COMPLETED` with 9 completed and 1 failed.
-- Duplicate idempotent submission creates one database job.
+**Non-goals:** distributed consensus, external broker, process termination of in-flight requests.
 
-**Non-goals:** distributed queue, priorities, arbitrary uploaded URL jobs, cross-project jobs, livestreaming response bodies.
+### PR-2: Policy-aware bounded execution and cancellation
 
-### PR-2: Job cancellation and terminal-state integrity
+**Evidence and stories:** timeout/429 demand and controllable long scans; US-002 and US-004.
 
-**Research problem and evidence:** Long-running monitoring must be controllable and recoverable.
+**Behavior:** a bounded executor enforces project concurrency; per-host semaphores enforce exact-host concurrency. Detailed probes enforce attempts, timeout, backoff, Retry-After cap, and retryable statuses. Cancellation is checked before queue submission, before source start, and after source completion.
 
-**Stories:** US-002.
+**Rules:** total global requests never exceed 20; project concurrency 1-20; host override cannot exceed project concurrency in effective execution; `Retry-After` waits at most 30 seconds; no real sleeps in unit tests; a cancel request starts zero new sources after acknowledgement.
 
-**Behavior:** `POST /api/jobs/{job_id}/cancel` changes `QUEUED` or `RUNNING` to `CANCEL_REQUESTED`; the worker acknowledges cancellation and finalizes `CANCELLED`. Cancelling queued work marks all pending sources cancelled without network calls. In-flight calls are not force-killed.
+**Acceptance:** six-source fixture with project concurrency 4 and host override 2 observes maximum 2 active calls to that host; max attempts 3 performs exactly three under repeated 503; 429 then 200 remains non-actionable; running cancellation preserves completed/in-flight results and cancels all pending sources.
 
-**Inputs:** expected integer version and optional idempotency key.
+**Non-goals:** adaptive machine-learning throttling, cross-process global rate limiter, force-killing request threads.
 
-**Outputs:** updated job plus `cancellation_requested_at` and terminal timestamp when acknowledged.
+### PR-3: Retry-failure integrity and scheduled-job unification
 
-**Rules:** only `QUEUED` and `RUNNING` are cancellable; `CANCEL_REQUESTED` is idempotent; terminal-state cancellation returns 409 with current representation; expected-version mismatch returns 409.
+**Evidence and stories:** repeat verification without redoing success; US-003.
 
-**Acceptance:** queued cancellation makes zero scanner calls; running cancellation allows the active source to finish but starts zero later sources after acknowledgement; terminal cancel leaves state/data unchanged; completed results remain queryable.
+**Behavior:** retry preview validates current project membership and URL policy; child job contains only eligible failed sources and snapshots current policy. Scheduled due work creates jobs using deterministic idempotency keys and the same worker path.
 
-**Non-goals:** OS-level thread termination, partial result deletion, undo cancellation.
+**Rules:** one schedule/due-slot produces at most one job; retry parent must be failed/partial; successful/cancelled sources are never copied; archived projects permit read-only job inspection but no retry/new scheduled job.
 
-### PR-3: Failed-source retry jobs
+**Acceptance:** two failed sources create exactly a two-source child; removed source is excluded; all unsafe sources create no job/outbound request; two schedule workers processing the same due slot yield one job ID; existing `ScheduledScanExecutor` tests remain compatible.
 
-**Research problem and evidence:** Repeating successful network work wastes time and increases rate-limit exposure.
+**Non-goals:** arbitrary source selection, automatic infinite retry chains, schedule CRUD UI.
 
-**Stories:** US-003.
+### PR-4: Observation cache and immutable policy snapshot
 
-**Behavior:** `POST /api/jobs/{job_id}/retry-failures` previews and then creates one linked child job from eligible failed sources. Request field `preview=true` returns eligibility without mutation; `preview=false` creates the job.
+**Evidence and stories:** reducing repeated requests and false positives; US-004.
 
-**Inputs:** expected version, preview boolean, idempotency key.
+**Behavior:** persist the full job policy snapshot and per-observation effective policy. Cache eligible observations by project, URL, fingerprint, and expiry. A cache hit creates a new evidence observation that references the cached observation ID and marks `from_cache=true` without another network request.
 
-**Outputs:** preview with eligible/excluded/invalid sources, or HTTP 202 child job representation.
+**Rules:** TTL zero disables cache; maximum 86400 seconds; cache only successful or confirmed terminal 404/410 evidence; invalidate naturally through fingerprint/key changes; never share across projects; cap stored rows to 50,000 with oldest-expired cleanup first.
 
-**Rules:** parent must be `PARTIALLY_COMPLETED` or `FAILED`; source must have parent state `FAILED`, still belong to the active project, and pass current URL policy. Child snapshots the **current** effective project policy and points to `parent_job_id`. Successful parent sources are never copied.
+**Acceptance:** eligible hit within TTL makes zero requester calls and preserves classification; expired hit makes a request; different project/fingerprint misses; transport-only evidence never enters cache; unsafe URL is revalidated even on lookup and cannot be served from cache.
 
-**Acceptance:** two failed sources create a two-source child; removed source is excluded with `NOT_IN_PROJECT`; all-invalid preview reports each error and creation returns 400/no job; repeated idempotent create returns the same child.
+**Non-goals:** distributed cache, content-body cache, manual cache UI.
 
-**Non-goals:** retrying individual link results within a successful source, arbitrary manual source selection, recursive automatic retry-job creation.
+### PR-5: Ignore expiry on fresh confirmed recurrence
 
-### PR-4: Versioned project and exact-host scan policies
+**Evidence and stories:** expected exceptions without permanently hiding risk; US-005.
 
-**Research problem and evidence:** Timeouts and 429 responses produce recurring false positives; official open-source guidance requires retry, concurrency, cache, and authentication tuning.
+**Behavior:** list/detail are read-only for expired ignores and expose derived `ignore_expired=true`. Fresh confirmed observation executes one atomic reopen/audit transition. UI uses exact label “Expired, awaiting fresh confirmed evidence.”
 
-**Stories:** US-004.
+**Rules:** blank/over-500 reason rejected; expiry before current local date rejected on submission; non-confirmed evidence leaves state/version unchanged; concurrent confirmed observations create one reopen audit event.
 
-**Behavior:** dashboard and API expose a project default and exact-host overrides. Saving any semantic change creates a new immutable policy version. Jobs snapshot the active version. Policy preview resolves one URL to its effective fields and source rule.
+**Acceptance:** valid ignore writes one audit event; expiry/list causes no write; first confirmed recurrence changes IGNORED to OPEN, increments once, clears active fields, and preserves old metadata in audit; second concurrent recurrence does not duplicate event; transient/recovered evidence does not reopen.
 
-**Inputs:** policy fields defined in Selected Scope; exact hostname in IDNA-normalized lowercase; expected version.
+**Non-goals:** pattern-based suppression, deletion, project-wide ignore.
 
-**Outputs:** policy document with active version, project defaults, sorted host overrides, created timestamp, and preview response.
+### PR-6: Policy provenance and complete operations UI
 
-**Rules:** host overrides are exact only; contradictory/duplicate host entries rejected; temporary statuses limited to the fixed allowed set; integers are not accepted as booleans; unknown fields rejected; stale save returns 409 and current representation.
+**Evidence and stories:** users must understand classifications and operate jobs; US-001 through US-006.
 
-**Acceptance:** six links to one exact host with concurrency 2 never exceed two active requester calls; max attempts 3 produces no fourth attempt; exact host wins over default; invalid retry count makes no policy version; evidence identifies applied version and rule.
+**Behavior:** additive finding detail fields expose policy version/fingerprint/rule/hostname/effective fields/cache flag. Dashboard implements Jobs workspace, Job Detail dialog, Scan Policy dialog, and finding Policy Applied block.
 
-**Non-goals:** wildcard rules, regex, per-path policy, plaintext credentials, user script hooks.
+**Validation:** all dynamic data rendered with text content/escape helper; expected versions required for mutations; policy form uses existing server bounds; conflict reload retains local draft for manual reapply.
 
-### PR-5: Ignore expiry and fresh-evidence recurrence contract
+**Acceptance:** every screen/state in the UI specification is represented by DOM-level tests; live startup flow creates a job, observes progress, cancels or retries, saves versioned policy, and displays provenance; keyboard focus and announcements follow specified behavior; secret sentinel absent from database, API, HTML, copied summary, and logs.
 
-**Research problem and evidence:** Expected failures must not obscure regressions, but suppression must remain visible and reversible.
-
-**Stories:** US-005.
-
-**Behavior:** retain the existing Ignore API and schema. Clarify UI summary and ensure expiry alone does not mutate a finding. On the next fresh `CONFIRMED_BROKEN` observation after expiry, the finding becomes `OPEN`, clears active ignore metadata while preserving it in audit, increments version once, and records `IGNORE_EXPIRED_REOPENED`.
-
-**Inputs:** reason 1 to 500 trimmed characters; optional ISO date not before current local date at submission; expected version.
-
-**Outputs:** finding detail and audit event.
-
-**Rules:** listing an expired ignored finding never silently writes; it is labelled `Expired, awaiting fresh evidence`. Ignored items remain available under `IGNORED` filter. Non-confirmed evidence after expiry does not reopen.
-
-**Acceptance:** valid ignore persists reason/expiry and one audit event; list after expiry does not count it active or change version; fresh confirmed evidence reopens once; blank/long reason returns 400 and creates no event.
-
-**Non-goals:** project-wide ignore expressions, automatic deletion, hidden ignored records.
-
-### PR-6: Evidence explanation and policy provenance
-
-**Research problem and evidence:** Users cannot safely tune policies unless they can see why classification occurred and which rule produced it.
-
-**Stories:** US-006.
-
-**Behavior:** every detailed observation/evidence group stores policy version, rule kind (`PROJECT_DEFAULT` or `HOST_OVERRIDE`), hostname, ordered attempts, and sanitized classification reason. Finding detail displays the latest policy provenance and ordered attempts. Copy evidence creates a text summary client-side from already loaded sanitized fields.
-
-**Inputs:** scanner attempts and immutable policy snapshot.
-
-**Outputs:** additive finding detail fields; no changes to legacy scan JSON/CSV/Markdown/JSONL.
-
-**Rules:** persisted/displayed fields exclude headers, cookies, credential-bearing URLs, response bodies, and uncontrolled exception text. 404/410 confirmation and 429-then-200 behavior remain deterministic under current classifier rules.
-
-**Acceptance:** repeated terminal 404/410 is confirmed; 429 then 200 creates no new finding; sentinel secrets are absent from DB/API/HTML/logs; evidence order equals attempt sequence; copied summary includes policy version and no sensitive fields.
-
-**Non-goals:** raw response inspector, AI-generated diagnosis, policy editing from finding detail.
+**Non-goals:** frontend framework, global navigation, visual redesign of unrelated dashboard sections.
 
 ## UI and UX Specification
 
 ### Personas and primary journey
 
-Primary persona: site administrator monitoring one or more saved projects. Secondary persona: SEO/content operator tuning noisy hosts and reviewing trusted findings. Primary journey:
+Primary persona: site administrator running recurring saved-project scans. Secondary persona: SEO/content operator tuning noisy hosts and reviewing trusted findings.
 
-**Dashboard -> Saved project -> Run project scan -> Jobs panel -> observe progress -> partial result -> inspect failed sources -> retry failures -> completed results -> open trusted finding -> inspect applied policy/evidence.**
-
-Friendly failure journey:
-
-**Run project scan -> unsafe target or storage failure -> project action shows a specific error and no job -> user corrects project or retries; filters and existing jobs remain unchanged.**
+Primary journey: **Saved Project -> Run project scan -> Scan Jobs -> Job Detail -> observe progress -> cancel or retry failures -> Trusted Finding -> Policy Applied evidence.** Policy journey: **Saved Project -> Edit scan policy -> change exact-host rule -> preview -> save -> run job -> inspect applied version.**
 
 ### Information architecture
 
-Retain the single-page dashboard and current stack. Page order becomes:
+Preserve the single-page dashboard and existing section order, with these final positions:
 
-1. Product header and health summary.
+1. Header and product status.
 2. Saved Projects.
-3. **Scan Jobs** new section.
+3. Scan Jobs.
 4. Trusted Findings.
 5. Ad-hoc Scan Pages.
 6. Recent Pages.
 7. Historical Analytics.
 
-No global navigation is added. Saved projects remain the entry point. “Run project scan” creates a job and scrolls/focuses the matching job card. Findings remain project-scoped.
+No new global navigation or framework is introduced. Project cards are the entry point for jobs and policies.
 
-### Design-system decision and tokens
+### Design system
 
-Use existing semantic HTML, CSS custom properties, dark surfaces, and vanilla JavaScript. No React/Vue/framework/build pipeline. Add/reuse tokens:
+Retain existing semantic HTML, dark surfaces, CSS custom properties, and vanilla JavaScript. Add no frontend dependency. Use spacing 4/8/12/16/24/32 px; body 16 px at 1.5 line height; dense metadata 14 px; cards 10 px radius; controls 6 px radius; normal text contrast 4.5:1; UI boundaries/focus 3:1; visible 2 px focus ring with 2 px offset; primary touch targets 44x44 px; color never carries state alone. Disable transitions and smooth scroll under reduced motion.
 
-- Spacing: `--space-1:4px`, `--space-2:8px`, `--space-3:12px`, `--space-4:16px`, `--space-6:24px`, `--space-8:32px`.
-- Radius: 6px controls, 10px cards/dialogs.
-- Type: body 16px/1.5, dense metadata 14px/1.45, page heading 32px, section heading 24px.
-- Focus: 2px solid focus color with 2px offset and at least 3:1 contrast.
-- Text contrast: 4.5:1 normal, 3:1 large/UI boundaries.
-- State colors: each badge has visible text and icon/symbol; color is supplemental.
-- Controls: 44x44px minimum for primary actions; compact icon-free table actions at least 24x24px with 8px separation.
-- Motion: no progress animation required; under `prefers-reduced-motion: reduce`, disable smooth scrolling and transitions.
-- Elevation: border plus one subtle shadow only for dialogs; no gradients or decorative motion.
+### Screen states and behavior
 
-### Component behavior
-
-- Job states use exact labels: Queued, Running, Partial, Completed, Failed, Cancelling, Cancelled.
-- Source counts use text such as “4 of 10 sources completed; 1 failed.”
-- Primary button labels: `Run project scan`, `View job`, `Cancel scan`, `Retry failed sources`, `Save policy`.
-- Secondary labels: `Preview retry`, `Refresh jobs`, `Edit scan policy`, `Reset to defaults`, `Close`.
-- All asynchronous controls set `aria-busy` on their region, disable only conflicting actions, and retain Close/navigation controls.
-
-### Accessibility
-
-- `section` elements have headings and `aria-labelledby`.
-- Job collection is an ordered list; each job uses an article with heading containing project and short job ID.
-- Progress is exposed as text and `<progress max="..." value="...">`, with a polite live summary. Do not announce every polling tick; announce state transitions and completion only.
-- Dialogs use native `<dialog>`, labelled headings, visible Close, Escape when no save is pending, initial focus on heading or primary action, and focus restoration.
-- Forms use explicit labels, instructions, field-level errors linked by `aria-describedby`, and an assertive summary for failed saves.
-- Tables use captions and column headers; mobile layout uses semantic lists/definition lists rather than CSS-breaking table semantics.
-- Polling updates never replace focused controls. If a job card disappears due to filter change, focus moves to the Jobs heading and an announcement explains why.
-
-### Responsive behavior
-
-- Desktop `>=1024px`: Jobs list is two-column cards; policy dialog uses two-column field groups and a full-width host-rule table.
-- Tablet `640-1023px`: one-column jobs; policy fields in two columns; source detail table scrolls only within its labelled container.
-- Mobile `<640px`: full-width cards; all actions stack; policy fields single column; host overrides render as cards; dialogs use viewport width minus 16px and max-height with internal vertical scrolling.
-- At 320 CSS pixels and 200% zoom, no page-level horizontal scrolling, clipped labels, or unreachable actions.
+Every asynchronous region independently supports loading skeleton, empty guidance, disabled action reason, validation errors, recoverable server error, stale-data state, success announcement, and conflict refresh. Polling updates do not replace focused nodes or announce every count change.
 
 ## Screen Inventory and User Flows
 
-### Screen 1: Saved Projects section, enhanced job entry
+### Screen 1: Saved Project card enhancements
 
-**Purpose:** Start a durable project scan and reach project policy.
+Header retains project name, pin, and health summary. Add policy line `Scan policy vN · X exact-host overrides`. Primary action remains `Run project scan`. Secondary action `Edit scan policy` follows it. On create, button becomes `Queuing scan…`, disabled, and card sets `aria-busy=true`. Success announces job short ID and moves focus to its Jobs card. Validation error lists each rejected project source and offers existing Edit project. Storage error says no job was created and preserves actions.
 
-**Layout:** Existing project card header and summary remain. Action row order: primary `Run project scan`; secondary `Edit scan policy`, `Load targets`, existing lifecycle actions. A compact line shows `Scan policy vN · X host overrides`.
+### Screen 2: Scan Jobs workspace
 
-**States:**
-- Loading: existing project skeleton/feedback.
-- Disabled: Run disabled for archived project or while create request is pending; reason is visible.
-- Validation error: inline banner names unsafe/missing target and links to Edit project.
-- Storage/network error: “Could not create scan job. No scan was started.” with Retry.
-- Success: “Scan queued as JOB-XXXXXXXX” live message; Jobs section receives focus at matching card.
-- First run: card explains that project scans continue if the page is refreshed.
+Header contains `Scan Jobs`, project selector, state selector, and `Refresh jobs`. Default query shows all nonterminal jobs plus 20 newest terminal jobs. Loading shows three inert skeleton cards. Empty state says `No project scans yet` and `Run a saved project` focuses Saved Projects. Stale state appears after two poll failures, retains cards, and offers Resume updates.
 
-**Click path:** Dashboard -> Saved Projects -> project card -> Run project scan -> queued job appears -> focus moves to job heading.
-
-### Screen 2: Scan Jobs section
-
-**Purpose:** Review current/recent jobs, progress, terminal outcome, and actions.
-
-**Header block:** `Scan Jobs`, one-sentence explanation, project filter, state filter, `Refresh jobs`. Default shows all active and the 20 latest terminal jobs; API pagination remains available.
-
-**Body:**
-- Loading: three noninteractive skeleton cards plus “Loading scan jobs.”
-- Empty: “No project scans yet.” CTA `Run a saved project` focuses Saved Projects heading.
-- Card header: project name, state badge, created time, short job ID.
-- Progress block: text and `<progress>`; counts for pending/running/completed/failed/cancelled.
-- Metadata: source count, static/SPA mode, policy version, parent retry link when applicable.
-- Actions: `View job`; `Cancel scan` only for eligible states; `Retry failed sources` only for partial/failed terminal state.
-- Error: preserve filters and existing cards; show Retry.
-- Stale: after two consecutive poll failures, retain data with “Updates paused” and manual Retry.
-- Success transition: announce once, update badge and actions without stealing focus.
-
-Polling is every 2 seconds while any visible job is nonterminal, 10 seconds otherwise, paused when document is hidden, and immediately refreshed on visibility return.
+Cards show project, origin, state text, created time, short ID, native progress, completed/failed/cancelled/pending counts, policy version, parent link, and `View job`. `Cancel scan` appears for queued/running states. `Retry failed sources` appears only for failed/partial terminal states. Poll every 2 seconds while any visible job is nonterminal and every 10 seconds otherwise; pause when document hidden; refresh immediately on visibility return.
 
 ### Screen 3: Job Detail dialog
 
-**Purpose:** Inspect source-level outcomes and perform cancellation/retry.
+Native dialog header contains project, state, full job ID with Copy, and Close. Summary contains timestamps, origin, policy version, parent/child links, and textual/native progress. Source filter tabs: All, Running/Pending, Failed, Completed, Cancelled. Rows/cards show source URL, state, attempts, sanitized reason, start/completion time.
 
-**Header:** project name, full state text, job ID copy button, Close.
+Cancel flow: View job -> Cancel scan -> confirmation names remaining count -> Confirm cancellation -> state becomes Cancelling -> pending sources become Cancelled -> completion announcement. Close remains enabled. Conflict refreshes detail and explains the state changed.
 
-**Summary:** created/started/completed timestamps, policy version, parent/child links, progress counts.
-
-**Source sections:** filter tabs All, Failed, Completed, Pending/Cancelled. Each row/card shows source URL, state, attempts count, sanitized reason, start/end time. Results are capped to summary fields; existing scan results can open in current result review if available.
-
-**Actions:** primary is state-dependent: `Cancel scan` for active job, `Retry failed sources` for partial/failed, otherwise `Close`. Secondary `Copy job ID`.
-
-**Cancellation flow:** View job -> Cancel scan -> confirmation names remaining source count -> Confirm cancellation -> dialog shows Cancelling -> final state Cancelled; Close remains available.
-
-**Retry flow:** View partial job -> Retry failed sources -> preview panel lists eligible/excluded/invalid -> `Create retry job` -> new child job link appears -> dialog can switch to child.
-
-**Failure states:** 409 refreshes current job and explains state changed; 500 preserves dialog and offers Retry; invalid sources remain visible but cannot be selected.
+Retry flow: View partial job -> Retry failed sources -> preview lists eligible, excluded, invalid -> Create retry job -> child card appears and focus moves to child heading. If zero eligible, creation is disabled and reasons remain visible.
 
 ### Screen 4: Scan Policy dialog
 
-**Purpose:** Configure project defaults and exact-host overrides with deterministic preview.
+Header: `Scan policy for [project name]`, active version, Close. Defaults block contains timeout, concurrency, attempts, backoff, Retry-After checkbox, cache TTL, and temporary-status checkboxes with visible min/max help. Exact-host overrides block lists sorted cards with Edit/Remove and `Add exact-host override`. Helper explicitly states that subdomains do not inherit.
 
-**Header:** `Scan policy for the selected project`, active version, Close.
+Preview block accepts one URL and displays effective source (`Project default` or exact hostname), all resolved fields, fingerprint prefix, and whether cache is enabled. Preview never saves. Footer actions: `Save policy`, `Reset to built-in defaults`, `Cancel`.
 
-**Project defaults block:** labelled fields for timeout, max concurrency, max attempts, backoff, respect Retry-After, cache TTL, and temporary statuses. Inline min/max hints always visible.
+Validation summary receives focus; each field is linked with `aria-describedby`. Conflict presents server version and retained local draft; user chooses `Reload server version` or `Reapply my draft`. Success announces new version and updates project card without closing.
 
-**Host overrides block:** existing rules sorted hostname; each card/row shows hostname and only overridden fields. Actions `Edit` and `Remove`. `Add host override` opens an inline subform. Hostname is exact-match and helper text states subdomains do not inherit.
+### Screen 5: Trusted Finding Policy Applied block
 
-**Preview block:** URL field and `Preview effective policy`; result names project/default or exact host rule and resolved values. Preview never saves.
+Position directly above Probe Evidence. Show version, rule, exact hostname, timeout, max attempts, cache source, fingerprint prefix, and observation time. `Copy evidence summary` copies only sanitized loaded fields and announces completion. Legacy rows show `Legacy observation, policy provenance unavailable`.
 
-**Footer:** primary `Save policy`, secondary `Reset to built-in defaults`, `Cancel`.
+Ignored finding displays reason/expiry. Expired state displays exact text `Expired, awaiting fresh confirmed evidence`; it does not appear as open until confirmed recurrence. Audit timeline shows `IGNORE_EXPIRED_REOPENED` with prior reason/expiry metadata after recurrence.
 
-**States:**
-- Loading: form skeleton; Save disabled.
-- Validation: field-specific errors and summary; first invalid field focused.
-- Conflict: “Policy changed in another session”; server version reloads, locally typed values are retained in a compare panel, user explicitly reapplies.
-- Success: “Scan policy vN saved”; project card updates; dialog remains open.
-- Error: no version created; form remains editable.
-- Empty host state: “No host overrides. Project defaults apply to every host.”
+### Responsive and accessibility behavior
 
-### Screen 5: Trusted Finding detail, policy provenance enhancement
+Desktop >=1024 px: two-column job cards; policy defaults two columns; host rules table/card grid. Tablet 640-1023 px: one-column jobs and two-column policy fields. Mobile <640 px: single-column controls/cards, full-width dialogs minus 16 px, internal vertical scrolling, host overrides as cards. At 320 CSS px and 200% zoom, no page-level horizontal scrolling or clipped critical actions.
 
-**Purpose:** Explain result trust and suppression state.
+Use labelled sections, ordered job list, articles with headings, labelled progress, native dialog, explicit form labels, table captions, live regions, and safe external link attributes. Opening dialog focuses heading/primary action; closing restores trigger; if a filtered row disappears, focus moves to Jobs heading with explanation. Escape closes only when no save is pending.
 
-**Added block:** `Policy applied` directly above Probe evidence. Shows policy version, Project default or Host override, exact hostname, max attempts, timeout, and observation timestamp. `Copy evidence summary` copies sanitized text and announces success.
+### End-to-end success flow
 
-**Ignore state:** active ignore displays reason and expiry. Expired ignore displays `Expired, awaiting fresh confirmed evidence`; it does not claim the finding is open. On recurrence, detail updates to Open with audit event.
+User queues a 10-source project, leaves/reloads dashboard, sees same running job and preserved progress, opens detail, observes one failure, previews and creates a one-source retry, opens child job, then opens a trusted finding and sees exact policy provenance.
 
-**States:** existing loading/error/mutation feedback retained. Missing historical policy fields show `Legacy observation, policy provenance unavailable`, not fabricated defaults.
+### Friendly failure flow
 
-### End-to-end successful flow
+A worker loses its lease during a scan. The old worker receives lease-lost and stops. After expiry, a new worker recovers pending work without repeating completed sources. UI shows `Recovering` as Running with preserved counts, then terminal result. If policy save conflicts, dialog retains local values and requires explicit reapply.
 
-1. User opens dashboard; projects and jobs load independently.
-2. User selects Run project scan on an active project.
-3. HTTP 202 returns; a queued job card is shown and focused.
-4. Worker leases job; progress updates without a page refresh.
-5. One source fails and the job becomes Partial.
-6. User opens job detail, selects Retry failed sources, reviews exactly one eligible source, and creates child job.
-7. Child completes; user opens trusted finding and sees the applied policy version with ordered sanitized attempts.
+### UI verification
 
-### Friendly failure recovery flow
-
-1. User clicks Run project scan.
-2. Server revalidation finds a now-unsafe target.
-3. No job is committed; project card shows the specific source and safe error code.
-4. User edits project, removes/corrects target, and retries.
-5. A queued job appears; previous jobs and filters were never cleared.
-
-### UI verification contract
-
-Developer must start the supported server, exercise deterministic fixtures, and verify desktop 1440x900, tablet 768x1024, and mobile 390x844 for empty, running, partial, job detail, policy validation, and friendly failure states. When Playwright/Chromium is available, capture screenshots to a temporary audit directory excluded from packaging and run browser E2E. Otherwise perform semantic DOM tests plus manual browser checks and document the limitation. Keyboard-only traversal, 200% zoom/reflow, reduced motion, contrast calculations, and one screen-reader smoke test are mandatory and recorded in `development-report.md`.
+Run supported server with temporary state, deterministic fixture server, and browser tooling when available. Capture temporary screenshots at 1440x900, 768x1024, and 390x844 for empty Jobs, running job, partial detail/retry preview, policy validation, policy success, and expired-ignore finding. Perform keyboard-only, 200% zoom/reflow, reduced motion, contrast, and one screen-reader smoke check. Exclude screenshots from final package and record filenames/results in `development-report.md`. If graphical tooling is unavailable, DOM tests remain mandatory but the development phase must report the visual check blocked rather than claim it.
 
 ## Architecture and Technical Design
 
 ### Component boundaries
 
-- `src/brokenlinkbrief/scan_jobs.py` new: immutable job/source models, schema migration, CRUD, leases, optimistic versions, idempotency, counts, cancellation, retry eligibility.
-- `src/brokenlinkbrief/job_service.py` new: project validation, policy snapshot, job creation, cancellation, retry preview/create, worker orchestration, source execution, finding/history handoff.
-- `src/brokenlinkbrief/scan_policy.py` new: policy models, validation, exact-host resolution, schema/store, versioning, effective snapshot.
-- `src/brokenlinkbrief/package.py` modified narrowly: detailed scanner accepts an explicit immutable effective policy and injectable wait/cache/requester; legacy functions retain signatures and defaults.
-- `src/brokenlinkbrief/scheduled_scan.py` modified: scheduled execution creates or waits on the shared job service rather than maintaining a divergent durable state. Existing public `ScheduledScanExecutor` remains compatible through an adapter.
-- `src/brokenlinkbrief/app.py` modified: APIs, one process-local worker lifecycle, dashboard Jobs and policy UI, polling, focus management.
-- `src/brokenlinkbrief/finding_service.py` and `findings.py` modified: persist policy provenance and implement fresh-evidence ignore-expiry transition exactly once.
-- `projects.py` may expose shared configured DB/common connection helper without changing public project semantics.
+- `scan_jobs.py`: schema v2, immutable models, state machine, lease claim/heartbeat/recovery, source compare-and-set, pagination, cancellation, retry eligibility, idempotency.
+- `job_service.py`: project/policy snapshot, coordinator lifecycle, bounded source executor, host semaphores, schedule adapter, finding/history integration.
+- `scan_policy.py`: validation, canonical serialization/fingerprint, exact-host resolution, immutable policy versions, snapshot parsing.
+- `observation_cache.py` new: SQLite cache adapter with eligibility, lookup, expiry, project/fingerprint isolation, bounded cleanup.
+- `package.py`: detailed probe accepts `EffectivePolicy`, injectable requester/clock/sleeper, bounded Retry-After and attempt behavior; legacy `scan_page` unchanged.
+- `scheduled_scan.py`: compatibility adapter to common job service.
+- `findings.py` and `finding_service.py`: policy provenance columns/writes and atomic expired-ignore reopen.
+- `app.py`: authenticated APIs, coordinator lifecycle, complete UI and state management.
 
-### Job data flow
+### Job and evidence data flow
 
-Create request -> auth -> project lookup -> target revalidation -> policy snapshot -> transaction inserts job and source rows plus idempotency record -> HTTP 202 -> worker wake -> atomic lease -> per-source URL revalidation -> scan with effective exact-host policies -> persist result/evidence/history/finding summary -> update counts/heartbeat -> observe cancellation -> terminal finalize.
+Create -> authenticate -> active project -> revalidate sources -> load immutable policy document -> transaction inserts job/source/snapshot/idempotency -> return 202 -> coordinator atomically leases -> bounded execution resolves per-target policy -> cache lookup after URL validation -> detailed probe -> cache eligible evidence -> finding/history processing with provenance -> atomic source commit -> heartbeat/count refresh -> final compare-and-set.
 
-Scheduled due work calls the same `JobService.create_project_job` with origin `SCHEDULED` and deterministic idempotency key `schedule:<schedule_id>:<due_slot>`. Manual origin is `MANUAL`; retry is `RETRY`.
+### Persistence changes
 
-### State management
+Alter `scan_jobs` add nullable `worker_id`, `lease_expires_at`, `heartbeat_at`, `policy_snapshot_json`, and `schema_version` default 2. Add source `version` and `policy_fingerprint`. Add `scan_observation_cache` with ID, project, normalized URL, policy fingerprint, observation JSON, classification, created/expires timestamps, source observation ID; index project/url/fingerprint and expiry.
 
-Server database is authoritative. Dashboard memory contains filters, open job ID, latest versions, polling timer, and pending action flags only. No optimistic terminal-state claim. API mutation responses replace local records. Polling uses `updated_after` where possible to reduce payload.
+Add finding evidence provenance columns or a canonical `policy_json` field plus indexed version/fingerprint. Prefer explicit scalar columns for list/detail fields and canonical JSON for effective values. Migration is transactional/idempotent, never drops rows, and preserves existing null provenance as legacy.
 
-### Persistence schema
+### State and concurrency
 
-Use `BROKENLINKBRIEF_PROJECT_DB` and migration conventions already used by projects/findings. New logical tables:
+Database is authoritative. Use `BEGIN IMMEDIATE` only for short claim/finalize/recovery transactions. Source requests happen outside transactions. Owner/version predicates protect writes. Job-wide ThreadPoolExecutor size equals project concurrency, capped 20. Per-host semaphores use effective max concurrency. Coordinator heartbeat thread updates only owned running job.
 
-- `scan_jobs`: id, project_id, project_name_snapshot, origin, state, scan_mode, parent_job_id, policy_version_id, target_count, timestamps, worker_id, lease_expires_at, heartbeat_at, cancel_requested_at, version, sanitized terminal error.
-- `scan_job_sources`: id, job_id, ordinal, source_url, state, started/completed timestamps, result_summary_json, sanitized_error_code/detail, attempts_count, version; unique(job_id, source_url).
-- `scan_job_idempotency`: scope_hash, idempotency_key_hash, request_hash, job_id, created_at; unique(scope_hash, idempotency_key_hash).
-- `scan_policy_versions`: id, project_id, version_number, project_defaults_json, created_at; unique(project_id, version_number).
-- `scan_policy_host_overrides`: policy_version_id, normalized_hostname, override_json; unique(policy_version_id, normalized_hostname).
-- `scan_observation_cache`: project_id, normalized_url, policy_fingerprint, observed_at, expires_at, observation_json; bounded cleanup on writes.
+### Logging and errors
 
-Add indexes on jobs by project/state/created, lease expiry, sources by job/state/ordinal, policy project/version, and cache expiry. Foreign keys point to projects and parent jobs where compatible. Migration is idempotent, transactional, and never drops or rewrites existing tables.
+Structured events: job_created, job_claimed, job_heartbeat, job_recovered, source_started/completed/failed, cancel_requested/acknowledged, retry_created, policy_saved/resolved, cache_hit/miss/store, finding_reopened_after_expiry. Include IDs, counts, safe hostname, policy version, latency, correlation ID. Exclude tokens, idempotency plaintext, headers, cookies, bodies, full context, and raw exceptions. New API errors retain stable code/detail/field/current envelope.
 
-Result summary JSON contains counts and link-result references needed by current result/history integration, not raw bodies. Policy JSON uses sorted keys and validated primitive fields. Policy fingerprint is SHA-256 of canonical effective fields, excluding version metadata.
+### Alternatives rejected
 
-### Worker model
-
-One daemon worker coordinator starts with the HTTP application. It maintains a bounded `ThreadPoolExecutor` only for sources within the currently leased job. Global simultaneous source requests are capped at 20. Job-level concurrency is the policy's project default; exact-host concurrency is additionally enforced by per-host semaphores. Worker heartbeat every 5 seconds; lease duration 30 seconds; startup recovery claims leases expired by more than 30 seconds. Tests inject clock, sleeper, worker ID, and scanner.
-
-Shutdown stops claiming new jobs, requests no implicit cancellation, allows up to 10 seconds for in-flight commits, then exits. Remaining lease recovers on next startup.
-
-### Decision rationale and alternatives
-
-- **SQLite over Redis/Celery:** preserves self-hosted dependency-light architecture and is adequate for one application deployment. Distributed queues are deferred.
-- **One process-local worker over subprocesses:** easiest compatibility with current server and injectable scanner. Cooperative cancellation is explicit.
-- **Exact-host overrides over wildcard:** deterministic, safer, and sufficient to validate demand.
-- **Immutable policy versions over mutable JSON:** historic evidence remains explainable.
-- **Additive job APIs over changing `/scan`:** protects clients and exports.
-- **Embedded UI over framework rewrite:** current stack can deliver the bounded screens with lower risk.
+Redis/Celery is rejected because it adds operations/dependency burden. Wildcard policies remain rejected for ambiguity. Force cancellation is rejected for thread safety. Mutable policy versions are rejected because old evidence must stay explainable. Frontend rewrite is rejected because existing semantic/vanilla patterns can deliver the bounded workflow.
 
 ## Data, API, and Compatibility Changes
 
-All new endpoints use existing optional scan-token authorization and JSON error mapping. Error envelope for new APIs is `{"code":"STABLE_CODE","detail":"Human-readable detail","field":null,"current":null}`; existing endpoint envelopes do not change.
+Retain existing endpoints and add/complete:
 
-### Job APIs
+- `POST /api/projects/{project_id}/jobs` -> 202 job; optional `Idempotency-Key`; body `{"render_js":false}`.
+- `GET /api/jobs?project_id=&state=RUNNING,FAILED&limit=20&offset=0&updated_after=` -> paginated list.
+- `GET /api/jobs/{id}` -> job detail.
+- `GET /api/jobs/{id}/sources?state=&limit=100&offset=0` -> paginated sources.
+- `POST /api/jobs/{id}/cancel` body `{"version":N}`.
+- `POST /api/jobs/{id}/retry-failures` body `{"version":N,"preview":true|false}`.
+- `GET /api/projects/{id}/scan-policy`.
+- `PUT /api/projects/{id}/scan-policy` with expected version/defaults/host overrides.
+- `POST /api/projects/{id}/scan-policy/preview` with URL and optional draft.
 
-- `POST /api/projects/{project_id}/jobs`
-  - Header: optional `Idempotency-Key`.
-  - Body: `{"render_js": false}`.
-  - Response 202: `{"job": {"id":"job-id","state":"QUEUED","project_id":"project-id"}}`.
-- `GET /api/jobs?project_id=&state=&limit=20&offset=0&updated_after=`
-  - Limit 1 to 100; state may repeat or be comma-separated as documented, one representation selected in implementation: comma-separated uppercase values.
-  - Response: `{"items":[],"total":0,"limit":20,"offset":0}`.
-- `GET /api/jobs/{job_id}`
-  - Response includes job and paginated first 100 source summaries. Additional source page: `GET /api/jobs/{id}/sources?state=&limit=&offset=`.
-- `POST /api/jobs/{job_id}/cancel`
-  - Body: `{"version": 3}`.
-- `POST /api/jobs/{job_id}/retry-failures`
-  - Body preview: `{"version":3,"preview":true}`.
-  - Body create: `{"version":3,"preview":false}`, optional Idempotency-Key.
+Job detail adds lease status only as derived `recoverable_at`, not raw worker identity. Finding evidence adds `policy_version`, `policy_rule`, `policy_hostname`, `policy_fingerprint`, `effective_policy`, and `from_cache`, all nullable for legacy rows.
 
-Job summary exact fields: `id`, `project_id`, `project_name`, `origin`, `state`, `scan_mode`, `parent_job_id`, `policy_version`, `target_count`, `pending_count`, `running_count`, `completed_count`, `failed_count`, `cancelled_count`, `created_at`, `started_at`, `completed_at`, `updated_at`, `cancel_requested_at`, `version`.
-
-### Policy APIs
-
-- `GET /api/projects/{project_id}/scan-policy` returns active version or synthesized built-in defaults with version 0 and no host overrides.
-- `PUT /api/projects/{project_id}/scan-policy` body: `{"version":N,"defaults":{...},"host_overrides":[{"hostname":"api.example.com","overrides":{...}}]}`.
-- `POST /api/projects/{project_id}/scan-policy/preview` body: `{"url":"https://api.example.com/path","draft":<optional unsaved policy document>}`; response identifies effective values and rule source.
-
-### Additive finding detail fields
-
-Latest evidence gains `policy_version`, `policy_rule`, `policy_hostname`, and `policy_fingerprint`. Legacy rows return null for these fields. No existing field is renamed or removed.
-
-### Compatibility
-
-- `/scan`, `/scan-batch`, all formats, project CRUD/import/export/duplicate/pin, findings endpoints, notifications, CLI, and CI remain compatible.
-- Portable project configuration remains schema version 1 and excludes runtime policy/job state. A future schema version will be required before exporting policy; this pass does not silently extend it.
-- Duplicated/imported projects receive built-in policy version 0 and no jobs.
-- Archiving a project prevents new jobs/retries/policy mutation but preserves readable history/jobs/policies.
-- Existing schedules retain configuration; their execution adapter creates jobs without changing their public configuration schema.
+Existing `/scan`, `/scan-batch`, renderers, CLI, project portable schema v1, findings actions, notifications, and history shapes remain compatible. Import/duplicate projects begin policy version 0 and no jobs. Archive blocks new/retry/policy mutation but preserves reads. Existing scheduled configuration schema remains unchanged.
 
 ## Security and Privacy Considerations
 
-- Revalidate every project source and discovered target immediately before network use. Stored job/source URLs are untrusted.
-- Respect existing redirect and private-network safeguards on every attempt.
-- Never persist headers, cookies, authorization values, response bodies, URLs containing credentials, raw exceptions, or plaintext idempotency keys. Store scoped hashes.
-- Policy supports no secret values. Authenticated-target support is deferred.
-- Cap timeout, attempts, concurrency, Retry-After, body reads, cache lifetime, pagination, and source counts to prevent resource exhaustion.
-- Exact-host matching uses parsed normalized hostname, not string suffix matching, preventing `example.com.attacker.test` confusion.
-- Cache key includes project, normalized URL, and policy fingerprint; do not share observations across projects.
-- Cancellation and retry require authorization and optimistic version to prevent lost updates.
-- HTML rendering uses textContent/escaping helper; no dynamic inline event handlers for untrusted data.
-- Logs include event, job/project IDs, state, counts, latency, and correlation ID. They exclude query token, authorization header, idempotency key, full result body, evidence context, and secrets.
-- Structured security events: unsafe job source, unsafe retry source, lease recovery, policy validation rejection, and evidence sanitization failure.
-- Job retention defaults to existing history retention behavior; no automatic deletion in this pass. Document storage implications.
+Revalidate source/target immediately before every outbound request and before cache lookup. Redirects use current centralized safeguards. Stored URLs are untrusted. Exact hosts use parsed IDNA hostname equality, never suffix matching. Bound timeout, attempts, concurrency, Retry-After, cache TTL/rows, source count, pagination, and JSON sizes. Cache never stores bodies, headers, cookies, credentials, or uncontrolled errors. Cache remains project-scoped. Hash idempotency keys and never log them. Require existing authentication and optimistic versions for all mutation APIs. Escape/textContent all UI data. Add security regression tests for stored unsafe sources, cache bypass attempts, host confusion, IPv4/IPv6/private redirects, and secret sentinels.
 
 ## Test Strategy (TDD)
 
-Implementation is failing-test first. For each RED test, record test name and initial failure in `development-report.md`, then implement the minimum coherent behavior.
+### RED tests for Feature 1
 
-### Feature A RED tests
+Create/update story-named modules:
 
-New modules:
-- `tests/test_scan_jobs_store.py`: schema migration, create, counts, state transitions, lease exclusivity, heartbeat/recovery, idempotency, terminal immutability, cancellation, retry eligibility.
-- `tests/test_job_service.py`: project validation, target snapshot, under-500-ms create separation, partial outcome, no rescan after recovery, finding/history handoff.
-- `tests/test_jobs_api.py`: auth, shapes, pagination, 202, 400, 404, 409, 500 sanitization, idempotency.
-- `tests/test_jobs_ui.py`: semantic region/cards/dialog, polling, progress, focus, cancel/retry flows, empty/loading/stale/error states, mobile rules.
-- `tests/test_job_restart_integration.py`: real temporary SQLite reopen and local HTTP fixture; completed source survives coordinator restart.
+- `tests/test_us_001_job_recovery.py`: claim exclusivity, heartbeat, lease loss, restart recovery, completed-source non-repetition, under-500-ms creation.
+- `tests/test_us_002_policy_cancellation.py`: project/host concurrency, cancellation before submit/start, in-flight preservation, terminal conflict.
+- `tests/test_us_003_retry_schedule.py`: retry exactness, exclusions, unsafe zero-I/O, schedule due-slot idempotency, legacy executor adapter.
+- `tests/test_jobs_api.py`: auth, pagination, validation, stable errors, concurrency conflict.
+- `tests/test_jobs_ui.py`: all Jobs and Job Detail states/focus/polling.
 
-Required named coverage:
-- US-001 happy: `test_job_create_returns_before_blocked_scanner_and_completes_later`.
-- US-001 edge: `test_ten_source_job_with_one_failure_is_partial_with_exact_counts`.
-- US-001 error: `test_create_commit_failure_exposes_no_job`.
-- US-002 happy: `test_queued_cancel_makes_zero_scanner_calls`.
-- US-002 edge: `test_running_cancel_finishes_active_source_and_starts_no_next_source`.
-- US-002 error: `test_terminal_cancel_returns_conflict_without_mutation`.
-- US-003 happy: `test_retry_child_contains_only_failed_sources`.
-- US-003 edge: `test_retry_preview_excludes_source_removed_from_project`.
-- US-003 error: `test_all_unsafe_retry_sources_create_no_job`.
+Real integration uses temporary SQLite plus local HTTP fixtures with delayed 200, repeated 503, 429-then-200, timeout, and terminal 404. Simulate process restart by closing coordinator/store and creating new instances, not by mocking persistence.
 
-Real-I/O coverage uses a local HTTP server with one delayed, one 200, and one failing source. No public network in automated tests.
+### RED tests for Feature 2
 
-### Feature B RED tests
+- `tests/test_us_004_applied_policy.py`: exact-host precedence, concurrency measurement, exact attempt count, Retry-After cap, fingerprint snapshots, cache eligibility/isolation/expiry.
+- `tests/test_us_005_ignore_expiry.py`: no-write expiry reads, one fresh-confirmed reopen, concurrent recurrence, nonconfirmed no reopen, validation.
+- `tests/test_us_006_policy_provenance.py`: persisted/API/UI provenance, legacy null behavior, copy summary, secret redaction.
+- `tests/test_policy_api.py` and `tests/test_policy_ui.py`: GET/PUT/preview, conflict recovery, every form state.
+- `tests/test_observation_cache.py`: boundaries and security.
 
-New modules:
-- `tests/test_scan_policy.py`: validation boundaries, canonical serialization, exact-host resolution, versioning, stale conflicts, policy fingerprint.
-- `tests/test_policy_scanning.py`: per-host semaphore, attempts cap, Retry-After cap, temporary statuses, cache eligibility/isolation, classifier outcomes.
-- `tests/test_policy_api.py`: auth, GET/PUT/preview, unknown fields, archived project, malformed hostname, 409.
-- `tests/test_policy_ui.py`: labelled form, host cards, validation/focus, preview, conflict recovery, success, provenance display/copy.
-- Focused additions to `tests/test_trusted_findings.py`: expiry only on fresh confirmed evidence and provenance/sanitization.
+### Acceptance-to-test mapping
 
-Required named coverage:
-- US-004 happy: `test_exact_host_policy_limits_concurrency_and_attempt_count`.
-- US-004 edge: `test_exact_host_override_wins_over_project_default`.
-- US-004 error: `test_invalid_attempt_limit_creates_no_policy_version`.
-- US-005 happy: `test_ignore_with_reason_and_expiry_audits_once`.
-- US-005 edge: `test_expired_ignore_listing_does_not_reopen_without_fresh_evidence`.
-- US-005 error: `test_blank_or_excessive_ignore_reason_does_not_mutate`.
-- US-006 happy: `test_repeated_404_410_evidence_includes_policy_provenance`.
-- US-006 edge: `test_429_then_200_is_non_actionable_and_creates_no_finding`.
-- US-006 error: `test_secret_sentinel_absent_from_db_api_ui_and_logs`.
-
-### Regression, boundary, and accessibility
-
-- Boundary values for all numeric policy fields, limits, offsets, idempotency key length, 50 targets, zero eligible retries, and lease expiry.
-- Existing SSRF tests extended to stored job sources, retry jobs, cached observations, and policy preview.
-- Existing project archive/restore, duplicate/import, schedule, findings, exports, notifications, SPA, and CLI tests remain green.
-- Node JavaScript syntax validation via existing `tests/test_dashboard_javascript.py` and `node --check` path when Node exists.
-- Accessibility contract tests for headings, labels, live regions, progress naming, dialog naming/focus restoration, error associations, non-color labels, reduced motion, and focus styles.
-- Browser E2E only when Playwright and Chromium are already available; do not make Playwright mandatory runtime dependency.
+Every Given/When/Then criterion in the six embedded stories receives a `US-xxx` marker or story-named test. The final development report lists each criterion and exact test node ID. Tests that only expect `NotImplementedError` are forbidden.
 
 ### Commands
 
-Targeted development commands:
+Targeted:
 
 ```bash
-python -m pytest -q tests/test_scan_jobs_store.py tests/test_job_service.py tests/test_jobs_api.py tests/test_jobs_ui.py tests/test_job_restart_integration.py
-python -m pytest -q tests/test_scan_policy.py tests/test_policy_scanning.py tests/test_policy_api.py tests/test_policy_ui.py tests/test_trusted_findings.py
-python -m pytest -q tests/test_projects.py tests/test_project_quick_scan.py tests/test_scheduler.py tests/test_scheduled_scan.py tests/test_ssrf_enhanced.py tests/test_dashboard_javascript.py
+python -m pytest -q tests/test_us_001_job_recovery.py tests/test_us_002_policy_cancellation.py tests/test_us_003_retry_schedule.py tests/test_jobs_api.py tests/test_jobs_ui.py
+python -m pytest -q tests/test_us_004_applied_policy.py tests/test_us_005_ignore_expiry.py tests/test_us_006_policy_provenance.py tests/test_policy_api.py tests/test_policy_ui.py tests/test_observation_cache.py
+python -m pytest -q tests/test_project_quick_scan.py tests/test_scheduled_scan.py tests/test_trusted_findings.py tests/test_ssrf_enhanced.py tests/test_dashboard_javascript.py
 ```
 
-Full regression and quality:
+Full and repository-supported checks:
 
 ```bash
 python -m pytest -q --disable-warnings
 ruff check src tests
 python -m compileall -q src tests
-python -m pip wheel . --no-deps -w dist-test
 ```
 
-Remove `dist-test` after isolated wheel import smoke. No type-check command is claimed because the repository has no configured type checker. Formatting uses Ruff check only unless the development environment supplies a project-approved formatter; do not add one silently.
+Coverage uses the official lab coverage environment and must measure `scan_jobs.py`, `job_service.py`, `scan_policy.py`, `observation_cache.py`, and changed finding/probe branches at >=90% statement coverage. If pytest-cov is unavailable, the gate is blocked, not waived.
 
-Startup smoke uses temporary DB/history paths, starts `python -m brokenlinkbrief.app`, verifies HTTP 200 from `/health` and `/dashboard`, creates a temporary project/job through local HTTP, observes a terminal state against local fixtures, then stops the process.
+Wheel command remains `python -m pip wheel . --no-deps -w dist-test` when pip is available; remove output after isolated import. Startup smoke starts `python -m brokenlinkbrief.app` with temporary state, verifies `/health` and `/dashboard`, creates a local-fixture project/job, observes recovery/terminal behavior, and stops cleanly. Node syntax uses existing dashboard regression path. Browser E2E is required when Playwright/Chromium is available.
 
-Lab gates from the lab toolchain, mandatory before completion:
+Mandatory official lab commands:
 
 ```bash
 tdd-gate-v3.sh
@@ -795,148 +585,109 @@ bdd-gate.sh
 security-gate.sh
 doc-sync-check.sh
 ui-gate.sh
-git-push-verify.sh
+bash ~/.hermes/scripts/git-push-verify.sh <repo_path>
 ```
 
-Because these scripts are absent from this archive, the developer must run the official externally provided commands. “Command not found” is a blocking result, not a pass.
-
-### Coverage and pass/fail criteria
-
-- At least 90% statement coverage for new/changed `scan_jobs.py`, `job_service.py`, and `scan_policy.py` using the lab coverage gate. Branch outcomes listed above must all have named tests.
-- Zero failing targeted or full regression tests.
-- Zero Ruff violations in `src` and `tests`.
-- Compileall, wheel build/import, startup smoke, and JavaScript syntax pass.
-- No public-network dependency in automated tests.
-- Every BDD acceptance criterion maps to one named test in the traceability matrix or development report.
-- Lab gates and push verification pass with captured command output.
+Missing official commands or Git remote access block final completion; developer must not add pass-through replacements.
 
 ## Documentation Deliverables
 
-### `README.md`
-
-Add Reliable Monitoring Operations overview; project scan job journey; exact job states; cancellation and failed-source retry; policy defaults/host overrides; limits; evidence provenance; compatibility note for synchronous ad-hoc APIs; SQLite persistence/backup; startup worker behavior; privacy and storage notes.
-
-### `CHANGELOG.md`
-
-Add one release entry with actual version/date, durable job APIs and states, schedule unification, policy fields and bounds, migration, ignore-expiry clarification, security/privacy controls, actual test/gate counts, and compatibility statement. Never predict counts.
-
-### API documentation
-
-Create `docs/scan-jobs.md` for endpoint shapes, state machine, idempotency, leases/recovery, cancellation, retry preview/create, pagination, errors, and examples. Create `docs/scan-policies.md` for fields, validation, exact-host precedence, policy versioning, cache rules, evidence provenance, and examples. Update `docs/README.md` links.
-
-### `FEATURES-DONE.md`
-
-Replace/update with PR-1 through PR-6, US-001 through US-006, exact delivered behavior, exclusions, migrations, endpoints, UI surfaces, and named test evidence. No aspirational claims.
-
-### `development-report.md`
-
-Record architecture decisions, RED/GREEN chronology, schema migration validation, real local-I/O restart evidence, targeted/full results, coverage, Ruff, compile, wheel, startup, JS, lab gates, UI screenshots/checks, accessibility checks, security/secret scan, changed files, limitations, commit hash, remote branch, push verification, and artifact integrity.
+- `README.md`: final durable-job user journey, states, recovery guarantees, cancellation/retry, policy tuning, cache rules, finding provenance, migration, operations, troubleshooting.
+- `CHANGELOG.md`: actual version/date, completed job reliability, policy execution, UI, migration, security, actual tests/gates.
+- `docs/scan-jobs.md`: state machine, leases/recovery, idempotency, APIs, scheduled unification, errors.
+- `docs/scan-policies.md`: fields/bounds, exact-host precedence, Retry-After, cache eligibility, provenance, examples.
+- `docs/findings.md`: expired-ignore and provenance fields.
+- `FEATURES-DONE.md`: only genuinely complete requirements/stories and actual test evidence.
+- `development-report.md`: RED/GREEN, migration, local I/O, coverage, quality gates, UI/screenshots, Git/push, changed files, limitations, traceability.
 
 ## Expected File Changes
 
 Expected additions:
 
-- `src/brokenlinkbrief/scan_jobs.py`
-- `src/brokenlinkbrief/job_service.py`
-- `src/brokenlinkbrief/scan_policy.py`
-- `tests/test_scan_jobs_store.py`
-- `tests/test_job_service.py`
+- `src/brokenlinkbrief/observation_cache.py`
+- `tests/test_us_001_job_recovery.py`
+- `tests/test_us_002_policy_cancellation.py`
+- `tests/test_us_003_retry_schedule.py`
+- `tests/test_us_004_applied_policy.py`
+- `tests/test_us_005_ignore_expiry.py`
+- `tests/test_us_006_policy_provenance.py`
 - `tests/test_jobs_api.py`
 - `tests/test_jobs_ui.py`
-- `tests/test_job_restart_integration.py`
-- `tests/test_scan_policy.py`
-- `tests/test_policy_scanning.py`
 - `tests/test_policy_api.py`
 - `tests/test_policy_ui.py`
-- `docs/scan-jobs.md`
-- `docs/scan-policies.md`
+- `tests/test_observation_cache.py`
 
 Expected modifications:
 
+- `src/brokenlinkbrief/scan_jobs.py`
+- `src/brokenlinkbrief/job_service.py`
+- `src/brokenlinkbrief/scan_policy.py`
 - `src/brokenlinkbrief/package.py`
-- `src/brokenlinkbrief/app.py`
 - `src/brokenlinkbrief/scheduled_scan.py`
-- `src/brokenlinkbrief/scheduler.py` only if deterministic schedule-slot idempotency needs an exposed identifier
-- `src/brokenlinkbrief/projects.py` only for shared DB helper/migration hook
+- `src/brokenlinkbrief/app.py`
 - `src/brokenlinkbrief/findings.py`
 - `src/brokenlinkbrief/finding_service.py`
-- `tests/test_trusted_findings.py`
-- `tests/test_project_quick_scan.py`
+- existing US-001 through US-004 tests where migrated to stronger story modules
 - `tests/test_scheduled_scan.py`
+- `tests/test_trusted_findings.py`
 - `tests/test_ssrf_enhanced.py`
 - `tests/test_dashboard_javascript.py`
-- `README.md`
-- `CHANGELOG.md`
-- `docs/README.md`
-- `FEATURES-DONE.md`
-- `development-report.md`
-- `pyproject.toml` and `src/brokenlinkbrief/__init__.py` only to synchronize the actual release version; no dependency additions are expected.
+- `README.md`, `CHANGELOG.md`, `docs/scan-jobs.md`, `docs/scan-policies.md`, `docs/findings.md`, `FEATURES-DONE.md`, `development-report.md`
+- `pyproject.toml` and `src/brokenlinkbrief/__init__.py` only for synchronized release version; no runtime dependency is planned.
 
-Files not expected to change: deployment configuration, webhook/notification implementation, governance/RBAC, CI gate, SPA scanner internals, historical reports, project portable schema, and this `implementation-plan.md` except for documented correction discovered during development.
+No deployment, governance, webhook, CI-gate, SPA-scanner, or project portable-schema changes are expected.
 
 ## Traceability Matrix
 
 | Research need | Research evidence | User story id | Planned requirement | Acceptance criterion | Planned implementation location | Planned test evidence | Priority |
 |---|---|---|---|---|---|---|---|
-| Scans survive page refresh and request lifetime | Research P0 durable jobs; competitors expose controlled recurring crawls | US-001 | PR-1 | Create returns within 500 ms while blocked scanner completes later | `scan_jobs.py`, `job_service.py`, `app.py` | `test_job_create_returns_before_blocked_scanner_and_completes_later` | P0 |
-| Partial results survive restart | Research recommends restart-safe progress | US-001 | PR-1 | Completed source count survives DB reopen and reaches one terminal state | store/service worker recovery | `test_completed_source_survives_coordinator_restart` | P0 |
-| One failed source does not erase success | Monitoring reliability need | US-001 | PR-1 | 10 targets, one failure -> 9 completed/1 failed/Partial | job service | `test_ten_source_job_with_one_failure_is_partial_with_exact_counts` | P0 |
-| User can stop obsolete work | Long scans need control | US-002 | PR-2 | Queued cancel causes zero scanner calls | job store/service/API/UI | `test_queued_cancel_makes_zero_scanner_calls` | P0 |
-| Cooperative cancellation preserves evidence | Reliability and auditability | US-002 | PR-2 | Active source completes; no later source starts | worker coordinator | `test_running_cancel_finishes_active_source_and_starts_no_next_source` | P0 |
-| Terminal states cannot be rewritten | Trustworthy job history | US-002 | PR-2 | Terminal cancel returns 409 and unchanged representation | store/API | `test_terminal_cancel_returns_conflict_without_mutation` | P0 |
-| Retry only failed work | Research notes repeated checks and quota/rate-limit anxiety | US-003 | PR-3 | Child contains exactly parent failed sources | service/store | `test_retry_child_contains_only_failed_sources` | P0 |
-| Project edits affect retry eligibility | Sources must remain project-owned | US-003 | PR-3 | Removed source excluded with code | service/API/UI preview | `test_retry_preview_excludes_source_removed_from_project` | P0 |
-| Unsafe stored source never becomes SSRF path | Project security constraint | US-003 | PR-3 | All unsafe retry sources create no job or request | policy/service | `test_all_unsafe_retry_sources_create_no_job` | P0 |
-| 429/timeouts need host-aware tuning | Lychee guidance and public false-positive issues in research | US-004 | PR-4 | Host concurrency <=2 and attempts <=3 | `scan_policy.py`, `package.py`, service | `test_exact_host_policy_limits_concurrency_and_attempt_count` | P0 |
-| Policy precedence must be deterministic | Research warns over-tuning risks | US-004 | PR-4 | Exact host wins over project default | policy resolver | `test_exact_host_override_wins_over_project_default` | P0 |
-| Invalid tuning must not create state | Safety and auditability | US-004 | PR-4 | Attempts >3 returns 400 and no version | policy store/API/UI | `test_invalid_attempt_limit_creates_no_policy_version` | P0 |
-| Expected exception needs reason and expiry | Research noise-control demand | US-005 | PR-5 | Ignore persists reason/expiry and one audit event | findings/service/UI | `test_ignore_with_reason_and_expiry_audits_once` | P0 |
-| Expiry alone must not invent fresh risk | Research specifies fresh confirmed recurrence | US-005 | PR-5 | Listing after expiry makes no version/state write | findings store | `test_expired_ignore_listing_does_not_reopen_without_fresh_evidence` | P0 |
-| Invalid ignore is rejected | Existing privacy/lifecycle contract | US-005 | PR-5 | Blank/>500 reason makes no mutation/event | API/store/UI | `test_blank_or_excessive_ignore_reason_does_not_mutate` | P0 |
-| Users need explainable classification | Trust is product differentiator | US-006 | PR-6 | 404/410 evidence includes policy provenance and ordered attempts | package/findings/detail UI | `test_repeated_404_410_evidence_includes_policy_provenance` | P0 |
-| Temporary recovery must not create work | False-positive evidence | US-006 | PR-6 | 429 then 200 creates no finding | detailed scanner/finding service | `test_429_then_200_is_non_actionable_and_creates_no_finding` | P0 |
-| Evidence must not leak secrets | Security/privacy constraint | US-006 | PR-6 | Sentinel absent from DB/API/UI/logs | sanitizer/store/app | `test_secret_sentinel_absent_from_db_api_ui_and_logs` | P0 |
+| Job survives refresh/restart | Research P0 durable jobs | US-001 | PR-1 | 3 completed sources are not repeated after lease recovery | scan_jobs.py, job_service.py | test_us_001_job_recovery.py | P0 |
+| Job creation is asynchronous | Monitoring operations | US-001 | PR-1 | 202 under 500 ms while scanner blocks >=1 s | app.py, job_service.py | jobs API integration test | P0 |
+| User can cancel obsolete work | Long-running scan control | US-002 | PR-2 | zero new source starts after cancellation acknowledgment | coordinator/store/UI | test_us_002_policy_cancellation.py | P0 |
+| Host controls prevent rate-limit noise | Lychee/429 evidence in research | US-002 | PR-2 | observed exact-host concurrency never exceeds 2 | package.py, job_service.py | concurrency fixture test | P0 |
+| Retry only failed work | Recheck/quota anxiety evidence | US-003 | PR-3 | child contains only current eligible failures | job_service.py, APIs/UI | test_us_003_retry_schedule.py | P0 |
+| Scheduled work has one identity | Recurring monitoring demand | US-003 | PR-3 | duplicate due-slot claims produce one job | scheduled_scan.py, job store | schedule idempotency integration | P0 |
+| Policy is applied, not decorative | Timeout/429 false positives | US-004 | PR-2/PR-4 | exactly 3 attempts under repeated 503; 429->200 nonactionable | package.py, scan_policy.py | test_us_004_applied_policy.py | P0 |
+| Cache reduces safe repeated work | Verification/recheck demand | US-004 | PR-4 | eligible hit makes zero requester calls; unsafe/ineligible never hit | observation_cache.py | test_observation_cache.py | P0 |
+| Expected exceptions expire safely | Research noise-control signal | US-005 | PR-5 | expiry read is no-write; confirmed recurrence reopens once | findings.py/service.py | test_us_005_ignore_expiry.py | P0 |
+| Weak evidence does not reopen | Trustworthy finding positioning | US-005 | PR-5 | transient/recovered after expiry leaves ignored state/version | finding service | parameterized recurrence tests | P0 |
+| Classification must be explainable | Evidence-aware differentiator | US-006 | PR-6 | finding detail shows policy version/rule/attempts/cache | findings/API/UI | test_us_006_policy_provenance.py | P0 |
+| Evidence must not leak secrets | Security/privacy constraint | US-006 | PR-6 | sentinel absent from DB/API/UI/copy/logs | sanitizer/store/app | secret-sentinel end-to-end test | P0 |
 
 ## Risks and Mitigations
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| SQLite contention between worker, API, findings, schedules | Locked writes or slow UI | WAL, short transactions, busy timeout, one write per source, deterministic retry, contention integration test |
-| Duplicate work after crash | Extra requests/notifications | Leases, atomic source completion, deterministic schedule idempotency, recovery tests |
-| Python thread cannot be force-cancelled | Slow cancellation | Cooperative boundary between sources, strict timeout, no new source after acknowledgement, accurate Cancelling state |
-| Per-host policy hides genuine failures | False negatives | Tight bounds, exact-host only, immutable versions, visible provenance, conservative classifier, reset action |
-| Retry-After stalls worker | Poor throughput | Cap at 30 seconds, release host slot during wait only if implementation proves fairness, injectable clock tests |
-| Cache returns stale health | Missed regressions | TTL off by default, only safe eligible outcomes, policy fingerprint/project isolation, visible cache provenance |
-| Embedded app.py becomes fragile | UI regressions | Small rendering functions, semantic contract tests, Node syntax, optional E2E; frontend extraction deferred |
-| Worker startup/shutdown affects current server | Hangs or lost progress | daemon coordinator, bounded shutdown, expired-lease recovery, startup smoke |
-| Scheduled executor compatibility breaks | Existing automation failure | Adapter preserves public API and tests; schedule creates deterministic job slot |
-| Policy JSON schema drifts | Unreadable evidence | versioned immutable schema, canonical serialization, migration and legacy null behavior |
-| Lab gates absent | Unverified delivery | Treat unavailable official scripts as blocking; do not create fake pass-through scripts |
-| Git remote unavailable | Cannot satisfy push policy | Development phase must report blocked completion and retain verified artifact; no false push claim |
+| Lease race repeats a source | Duplicate network work/alerts | owner/version predicates, atomic terminal commit, stale-owner tests |
+| SQLite contention | Slow or failed writes | WAL, short transactions, busy timeout, bounded retry, contention test |
+| Thread cancellation is cooperative | Delayed cancel | strict timeout, no new submissions, honest Cancelling state |
+| Policy over-tuning hides issues | False negatives | conservative defaults, tight bounds, exact-host only, visible provenance |
+| Cache returns stale results | Missed regressions | TTL off by default, narrow eligibility, fingerprint/project isolation |
+| Retry-After stalls capacity | Poor throughput | 30-second cap, injectable wait, host-slot fairness test |
+| Schedule adapter breaks callers | Regression | preserve public result model and existing tests |
+| Embedded frontend complexity | JS/UI regression | modular functions, DOM contracts, Node syntax, browser E2E when available |
+| Legacy evidence lacks provenance | Confusing display | explicit legacy label and nullable API fields |
+| Gate/Git tooling absent | Cannot certify lab completion | treat as BLOCKED, never fabricate scripts or push result |
 
 ## Definition of Done
 
-- [ ] PR-1 through PR-6 are implemented with no facade, placeholder, simulated persistence, or disabled UI action.
-- [ ] US-001 through US-006 happy, edge, and error criteria work end to end.
-- [ ] Manual saved-project and scheduled scans use the same durable job model.
-- [ ] Jobs survive restart, prevent duplicate committed execution, expose accurate progress, support cooperative cancellation, and retry only eligible failed sources.
-- [ ] Project and exact-host policies validate all bounds, resolve deterministically, version immutably, and appear in evidence provenance.
-- [ ] Ignore expiry reopens only on fresh confirmed evidence and all audit/version rules pass.
-- [ ] Existing scan, batch, project, finding, export, notification, schedule, CLI, and CI contracts remain compatible.
-- [ ] SSRF revalidation covers job creation, worker execution, retry, redirects, and cached observations.
-- [ ] No headers, credentials, cookies, response bodies, plaintext idempotency keys, or secret sentinels appear in DB/API/UI/logs.
-- [ ] Every acceptance criterion has named failing-first automated evidence and traceability.
-- [ ] Unit, API, local real-I/O restart, UI contract, accessibility, boundary, migration, and security tests pass.
-- [ ] `python -m pytest -q --disable-warnings` passes with zero failures.
-- [ ] `ruff check src tests` and `python -m compileall -q src tests` pass.
-- [ ] Wheel build and isolated import smoke pass; temporary build output is removed.
-- [ ] Startup smoke returns HTTP 200 for `/health` and `/dashboard` and completes a local durable job.
-- [ ] JavaScript syntax passes when Node is available.
-- [ ] Changed/new core modules meet at least 90% statement coverage through the lab coverage gate.
-- [ ] Desktop, tablet, mobile, keyboard, 200% zoom/reflow, reduced motion, contrast, and screen-reader checks are completed and recorded.
-- [ ] Official `tdd-gate-v3.sh`, `bdd-gate.sh`, `security-gate.sh`, `doc-sync-check.sh`, and `ui-gate.sh` pass. Missing official scripts block completion.
-- [ ] README, CHANGELOG, scan-job/policy API docs, FEATURES-DONE, and development-report match actual delivered behavior and actual results.
-- [ ] Secret scan and stray-artifact scan pass; no runtime DB, cache, venv, coverage, build, screenshots, editor state, or credentials are packaged.
-- [ ] A git commit with an accurate conventional message is created, pushed to the configured remote, and `git-push-verify.sh` confirms remote commit equality. Missing remote/access blocks completion.
-- [ ] Every requirement maps to implementation locations and named test evidence in the final report.
-- [ ] The complete project, not a patch, is repackaged; ZIP integrity, listing, clean extraction, required-file presence, and no-extra-enclosing-directory checks pass.
+- [ ] PR-1 through PR-6 are complete with no facade, placeholder, mock production behavior, or hidden nonfunctional control.
+- [ ] US-001 through US-006 pass every embedded happy, edge, and error criterion.
+- [ ] Lease ownership, heartbeat, recovery, stale-owner rejection, atomic source commit, and terminal immutability are proven with real SQLite reopen tests.
+- [ ] Manual and scheduled saved-project work use one durable job identity and execution path.
+- [ ] Cancellation and failed-source retry work through API and complete UI flows.
+- [ ] Policy values actually govern concurrency, timeout, attempts, backoff, Retry-After, and cache.
+- [ ] Cache eligibility, expiry, isolation, bounds, and unsafe-URL revalidation pass.
+- [ ] Expired ignores reopen once only on fresh confirmed evidence.
+- [ ] Finding evidence and UI expose sanitized immutable policy provenance.
+- [ ] Existing scan/batch/export/project/finding/notification/schedule/CLI/CI contracts remain green.
+- [ ] Targeted, full regression, real local-I/O, security, migration, API, UI, and accessibility tests pass.
+- [ ] Changed/new core modules achieve >=90% measured statement coverage.
+- [ ] Ruff, compile, wheel/import, startup, JavaScript syntax, and applicable browser E2E pass.
+- [ ] Desktop/tablet/mobile screenshots and keyboard/zoom/reduced-motion/contrast/screen-reader checks are recorded when tooling permits; unavailable tooling is reported as blocking, not passed.
+- [ ] Official `tdd-gate-v3.sh`, `bdd-gate.sh`, `security-gate.sh`, `doc-sync-check.sh`, and `ui-gate.sh` pass.
+- [ ] README, CHANGELOG, API docs, FEATURES-DONE, and development-report match actual behavior and actual counts.
+- [ ] No credentials, runtime DB, cache, venv, dependency directory, coverage/build output, screenshots, editor state, or scratch data are packaged.
+- [ ] `git add -A`, commit, pull/rebase, push, clean status, and official `git-push-verify.sh` complete successfully; missing Git metadata/remote blocks completion.
+- [ ] Every research need and user story maps to implementation and named test evidence.
+- [ ] Complete project ZIP passes integrity, listing, clean extraction, required-file, and no-extra-directory verification.

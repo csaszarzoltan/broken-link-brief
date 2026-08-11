@@ -15,21 +15,22 @@ class JobService:
   problems={u:validate_scan_url(u) for u in p.targets}; problems={k:v for k,v in problems.items() if v}
   if problems: raise ValueError(f"unsafe project targets: {problems}")
   policy=self.policies.get(project_id)
-  job=self.jobs.create(p.id,p.name,list(p.targets),policy["version"],origin,idempotency_key=idempotency_key)
+  job=self.jobs.create(p.id,p.name,list(p.targets),policy["version"],origin,idempotency_key=idempotency_key,policy_snapshot=policy)
   self._wake.set(); return job
  def run_once(self):
-  job=self.jobs.claim()
+  worker_id=f"worker-{id(self):x}"
+  job=self.jobs.claim(worker_id)
   if not job:return None
   for source in self.jobs.sources(job["id"]):
    current=self.jobs.get(job["id"])
    if current["state"]=="CANCEL_REQUESTED": break
-   self.jobs.start_source(source["id"])
+   self.jobs.start_source(source["id"],worker_id)
    try:
     if validate_scan_url(source["source_url"]): raise ValueError("unsafe target")
     results=self.scanner(source["source_url"])
-    self.jobs.finish_source(source["id"],True,[asdict(x) if hasattr(x,"__dataclass_fields__") else x for x in results])
+    self.jobs.finish_source(source["id"],worker_id,True,[asdict(x) if hasattr(x,"__dataclass_fields__") else x for x in results])
    except Exception as exc:
-    self.jobs.finish_source(source["id"],False,error=type(exc).__name__)
+    self.jobs.finish_source(source["id"],worker_id,False,error=type(exc).__name__)
   current=self.jobs.get(job["id"])
   if current["state"]=="CANCEL_REQUESTED":
    with self.jobs._db() as db:
