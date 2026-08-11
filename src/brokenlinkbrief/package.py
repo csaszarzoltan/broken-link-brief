@@ -851,12 +851,21 @@ def scan_link_detailed(
     max_attempts: int = 2,
     requester=None,
     sleeper=None,
+    policy=None,
 ) -> ScanObservation:
     """Check one link with bounded retry evidence without changing LinkResult."""
     import time as _time
     from brokenlinkbrief.confidence import ProbeAttempt, classify_evidence
     requester = requester or _probe_request
     sleeper = sleeper or _time.sleep
+    if policy is not None:
+        timeout = policy.policy.timeout_seconds
+        max_attempts = policy.policy.max_attempts
+        temporary_statuses = set(policy.policy.temporary_statuses)
+        backoff_seconds = policy.policy.backoff_seconds
+    else:
+        temporary_statuses = {429, 500, 501, 502, 503, 504, 505}
+        backoff_seconds = 0.25
     attempts = []
     location = None
     for index in range(max(1, min(3, max_attempts))):
@@ -866,10 +875,10 @@ def scan_link_detailed(
         latency = _time.perf_counter() - started
         error = reason if status is None else None
         attempts.append(ProbeAttempt(method, status, error, latency))
-        retry = status is None or status == 429 or (status is not None and status >= 500) or status in {404, 410}
+        retry = status is None or status in temporary_statuses or status in {404, 410}
         if not retry or index + 1 >= max_attempts:
             break
-        sleeper(min(0.25 * (2**index), 1.0))
+        sleeper(min(backoff_seconds * (2**index), 30.0))
     final = attempts[-1]
     result = LinkResult(url, final.status, final.error or (str(final.status) if final.status is not None else None), location)
     return ScanObservation(result, tuple(attempts), classify_evidence(attempts))

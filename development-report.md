@@ -2,43 +2,43 @@
 
 ## Implemented Scope
 
-Completed the durable-job recovery foundation and safe observation-cache foundation: worker-owned leases, heartbeat validation, exclusive claims, stale-owner rejection, expired-lease recovery without repeating committed sources, complete immutable policy snapshots on jobs, and project/policy-fingerprint scoped caching for eligible evidence.
+Implemented active lease heartbeats during blocked source requests and applied immutable effective-policy timeout, maximum attempts, retryable temporary statuses, and bounded exponential backoff to detailed link probes.
 
 ## Research Items Addressed
 
-Durable asynchronous scan recovery, repeated-check efficiency, and auditable policy isolation.
+Long-running scan recoverability and recurring timeout/429/5xx false-positive controls.
 
 ## Plan Requirements Completed
 
-PR-1 lease/recovery is complete for store and coordinator ownership. PR-4 cache persistence/isolation and job policy snapshots are complete. Remaining PR-2 runtime policy execution, PR-3 scheduled unification, PR-5 ignore recurrence, and PR-6 complete UI/provenance remain incomplete.
+Completed the active-heartbeat acceptance slice of PR-1 and the detailed-probe execution slice of PR-4. Existing lease recovery, cancellation, retry, cache, and policy-version foundations remain green.
 
 ## User Stories Covered
 
-- US-001: PASS for exclusive lease claim, recovery, stale-owner rejection, and non-repetition of completed sources.
-- US-002: Existing cancellation behavior remains PASS; planned policy-aware bounded concurrency not completed.
-- US-003: Existing retry behavior remains PASS; scheduled unification not completed.
-- US-004: PARTIAL, cache isolation/eligibility and policy snapshots PASS; runtime retry/concurrency enforcement incomplete.
+- US-001: PASS for active heartbeat while the scanner blocks; existing recovery tests remain PASS.
+- US-002: PARTIAL; existing cancellation remains green, policy-aware parallel concurrency is not complete.
+- US-003: PARTIAL; retry remains green, scheduled unification is not complete.
+- US-004: PASS for policy timeout, attempts, temporary-status selection, and backoff; PARTIAL overall because Retry-After/cache wiring is incomplete.
 - US-005: FAIL, not implemented.
-- US-006: FAIL, finding-level provenance/UI not implemented.
+- US-006: FAIL, finding provenance/UI not implemented.
 
 ## Architecture Decisions
 
-Extended the existing SQLite job schema additively. Lease writes use short immediate transactions and owner checks. Added `ObservationCache` as a separate adapter with conservative eligibility and project/fingerprint isolation. No runtime dependency was added.
+A dedicated daemon heartbeat thread is scoped to one claimed job and stopped before finalization. `scan_link_detailed` accepts an optional effective policy while retaining legacy defaults for existing callers. Requester and sleeper remain injectable.
 
 ## UI and UX Implementation
 
-No new screens were added in this pass. Existing Scan Jobs UI remains operational and JavaScript syntax regression passed. Graphical screenshots/E2E were blocked because browser tooling was unavailable.
+No new UI surface was completed. Existing dashboard startup and JavaScript regression remain green. Screenshots/E2E were blocked by unavailable graphical browser tooling.
 
 ## TDD Evidence
 
-RED: `tests/test_us_001_job_recovery.py` and `tests/test_us_004_observation_cache.py` initially failed during collection because `JobLeaseLost` and `ObservationCache` did not exist. GREEN: final targeted UI/feature run reported 5 passed; combined new/previous operations tests reported 12 passed.
+RED: three failures, two for unsupported `policy=` and one for unchanged heartbeat timestamp. GREEN: seven targeted operations tests passed after implementation.
 
 ## Tests and Coverage
 
-- Baseline: 846 passed, 45 skipped, 1 xpassed, 0 failed.
-- Final regression: 850 passed, 45 skipped, 1 xpassed, 0 failed.
-- Final targeted: 5 passed, 0 failed.
-- Coverage: BLOCKED. pytest-cov is unavailable; the exact command failed with `unrecognized arguments: --cov`. No percentage is claimed.
+- Baseline: 850 passed, 45 skipped, 1 xpassed.
+- Final regression: 853 passed, 45 skipped, 1 xpassed, 0 failed.
+- Targeted: 7 passed, 0 failed.
+- Coverage: BLOCKED; pytest-cov rejected the `--cov` arguments. No percentage claimed.
 
 ## Lab Quality Gates
 
@@ -50,25 +50,23 @@ RED: `tests/test_us_001_job_recovery.py` and `tests/test_us_004_observation_cach
 
 ## Lint, Formatting, Type-Check, Build, and Startup Results
 
-- Ruff: FAIL/BLOCKED, executable unavailable.
-- Formatting: not configured.
-- Type-check: not configured.
-- Compile: PASS, `python -m compileall -q src tests`.
-- Build: BLOCKED, pip module unavailable in this environment.
-- Startup: PASS; `/health` 200 (409 bytes), `/dashboard` 200 (52,566 bytes).
-- Integration: PASS using real SQLite reopen and lease expiry.
-- E2E/screenshots: BLOCKED, no graphical browser tooling.
+- Ruff: BLOCKED, executable unavailable.
+- Formatting/type-check: not configured.
+- Compile: PASS.
+- Build: BLOCKED, pip module unavailable.
+- Startup: PASS, health HTTP 200 (410 bytes), dashboard HTTP 200 (52,566 bytes).
+- Integration: PASS, real SQLite job heartbeat test.
+- E2E/screenshots: BLOCKED, browser tooling unavailable.
 
 ## Files Added
 
-- src/brokenlinkbrief/observation_cache.py
-- tests/test_us_001_job_recovery.py
-- tests/test_us_004_observation_cache.py
+- tests/test_us_001_heartbeat.py
+- tests/test_us_004_applied_policy.py
 
 ## Files Modified
 
-- src/brokenlinkbrief/scan_jobs.py
 - src/brokenlinkbrief/job_service.py
+- src/brokenlinkbrief/package.py
 - src/brokenlinkbrief/__init__.py
 - pyproject.toml
 - README.md
@@ -80,27 +78,27 @@ RED: `tests/test_us_001_job_recovery.py` and `tests/test_us_004_observation_cach
 
 ## Deferred or Blocked Items
 
-Runtime policy concurrency/retry/Retry-After enforcement, scheduled-job unification, full operations UI, ignore-expiry recurrence, finding policy provenance, measured coverage, official gates, Ruff, build, screenshots, and Git push.
+Policy-aware parallelism, Retry-After parsing, cache request-path wiring, scheduled unification, complete operations/policy UI, ignore recurrence, finding provenance, coverage, lab gates, build, screenshots, and Git push.
 
 ## Known Limitations
 
-Heartbeat support is available but the coordinator does not yet run a separate periodic heartbeat during a single long source request. Cache adapter is implemented and tested but is not yet wired into the detailed scanner. These items are not listed as done.
+Applied policy does not yet parse Retry-After headers because the current requester contract returns status/reason/location only. ObservationCache remains unwired to the detailed scan path. These are not listed as complete.
 
 ## Integrity Verification
 
-All 107 pre-existing files remain present. Intentional changes and additions are listed above. Runtime DBs, caches, bytecode, build output, histories, and credentials are excluded.
+All 110 pre-existing files remain present. Ten were intentionally modified and two tests were added. Temporary artifacts are excluded.
 
 ## Traceability Matrix
 
 | Research need | User story id | Plan requirement | Implementation evidence | Test evidence | Status |
 |---|---|---|---|---|---|
-| Restart-safe jobs | US-001 | PR-1 | lease columns, claim, heartbeat, recovery, owner checks | test_us_001_job_recovery.py | COMPLETE |
-| Cancellation | US-002 | PR-2 | existing cancel state machine | existing US-002 tests | PARTIAL |
-| Failed-only retry | US-003 | PR-3 | existing retry preview/child job | existing US-003 tests | PARTIAL |
-| Safe repeat work | US-004 | PR-4 | observation_cache.py and job policy snapshot | test_us_004_observation_cache.py | PARTIAL |
-| Ignore recurrence | US-005 | PR-5 | not implemented | none | NOT STARTED |
-| Finding provenance | US-006 | PR-6 | not implemented | none | NOT STARTED |
+| Long request lease renewal | US-001 | PR-1 | heartbeat thread in JobService | test_us_001_heartbeat.py | COMPLETE |
+| Cancellation/concurrency | US-002 | PR-2 | existing cancellation only | existing tests | PARTIAL |
+| Schedule/retry | US-003 | PR-3 | existing retry only | existing tests | PARTIAL |
+| Applied policy | US-004 | PR-4 | policy-aware scan_link_detailed | test_us_004_applied_policy.py | PARTIAL |
+| Ignore recurrence | US-005 | PR-5 | none | none | NOT STARTED |
+| Provenance UI | US-006 | PR-6 | none | none | NOT STARTED |
 
 ## Suggested Commit Message
 
-feat(operations): add recoverable job leases and safe observation cache
+feat(operations): apply scan policies and renew active job leases

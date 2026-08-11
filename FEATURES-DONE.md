@@ -1,12 +1,11 @@
 # Features Done
 
 ## Features Done (this pass)
-- Recoverable scan-job leases: worker ownership, heartbeat validation, exclusive claims, expired-lease recovery, and preservation of committed source results.
-- Policy snapshot persistence: newly created jobs retain their complete immutable project policy document.
-- Safe observation cache: project and policy-fingerprint scoped caching for recovered and confirmed-broken evidence only.
+- Active job heartbeats: running jobs renew their lease on a dedicated thread while source requests are blocked.
+- Applied detailed-probe policy: effective timeout, attempt count, temporary statuses, and exponential backoff govern network evidence collection.
 
 ## Sources
-- research-findings.md items addressed: durable asynchronous jobs; repeated-check efficiency; trustworthy evidence controls.
-- implementation-plan.md requirements addressed: PR-1 lease recovery and the persistence/cache portions of PR-4.
-- user stories covered: US-001 PASS; US-004 PARTIAL.
-- CHANGELOG.md section this maps to: v1.4.1 (2026-08-11).
+- research-findings.md items addressed: durable long-running scans; timeout and HTTP 429/5xx false-positive controls.
+- implementation-plan.md requirements addressed: PR-1 active heartbeat and the request-policy execution subset of PR-4.
+- user stories covered: US-001 PASS for blocked-request heartbeat; US-004 PASS for timeout/attempt/status/backoff controls.
+- CHANGELOG.md section this maps to: v1.4.2 (2026-08-11).

@@ -5,3 +5,7 @@ Saved-project scans use SQLite-backed job records. Create a job with `POST /api/
 ## Lease recovery
 
 Running jobs are owned by a worker lease. A 30-second lease is renewed by heartbeat; after expiry a new worker may claim the same job. Orphaned RUNNING source rows without committed results return to PENDING, while completed source rows remain immutable and are not repeated.
+
+## Active heartbeat
+
+The coordinator renews an owned running job every five seconds on a dedicated heartbeat thread, including during a long source request. A worker that loses ownership stops successful owner-checked writes; expired work is recoverable by another coordinator.

@@ -8,7 +8,7 @@ from .scan_jobs import JobConflict,ScanJobStore
 from .scan_policy import ScanPolicyStore
 class JobService:
  def __init__(self,jobs=None,projects=None,policies=None,scanner=scan_page):
-  self.jobs=jobs or ScanJobStore(); self.projects=projects or ProjectStore(self.jobs.path); self.policies=policies or ScanPolicyStore(self.jobs.path); self.scanner=scanner; self._wake=threading.Event(); self._stop=threading.Event(); self._thread=None
+  self.jobs=jobs or ScanJobStore(); self.projects=projects or ProjectStore(self.jobs.path); self.policies=policies or ScanPolicyStore(self.jobs.path); self.scanner=scanner; self._wake=threading.Event(); self._stop=threading.Event(); self._thread=None; self.heartbeat_interval=5.0
  def create_project_job(self,project_id,idempotency_key=None,origin="MANUAL"):
   p=self.projects.get(project_id)
   if p.archived: raise ValueError("active project is required")
@@ -21,6 +21,12 @@ class JobService:
   worker_id=f"worker-{id(self):x}"
   job=self.jobs.claim(worker_id)
   if not job:return None
+  heartbeat_stop=threading.Event()
+  def heartbeat_loop():
+   while not heartbeat_stop.wait(self.heartbeat_interval):
+    try:self.jobs.heartbeat(job["id"],worker_id)
+    except Exception:break
+  heartbeat_thread=threading.Thread(target=heartbeat_loop,daemon=True,name="brokenlinkbrief-job-heartbeat");heartbeat_thread.start()
   for source in self.jobs.sources(job["id"]):
    current=self.jobs.get(job["id"])
    if current["state"]=="CANCEL_REQUESTED": break
@@ -31,6 +37,7 @@ class JobService:
     self.jobs.finish_source(source["id"],worker_id,True,[asdict(x) if hasattr(x,"__dataclass_fields__") else x for x in results])
    except Exception as exc:
     self.jobs.finish_source(source["id"],worker_id,False,error=type(exc).__name__)
+  heartbeat_stop.set();heartbeat_thread.join(1)
   current=self.jobs.get(job["id"])
   if current["state"]=="CANCEL_REQUESTED":
    with self.jobs._db() as db:
