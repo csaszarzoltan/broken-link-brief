@@ -1709,6 +1709,11 @@ class _Handler(BaseHTTPRequestHandler):
                         days = int(params.get("days", "30"))
                     except (ValueError, TypeError):
                         days = 30
+                    # Clamp to a safe range so an out-of-range day count can't
+                    # reach timedelta(days=...) and overflow (huge int raises
+                    # OverflowError -> unhandled 500). days <= 0 -> all history
+                    # is preserved by get_portfolio_trends.
+                    days = max(0, min(days, 3650))
                     summary = get_portfolio(
                         project_ids=project_ids,
                         project_store=project_store,
