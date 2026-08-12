@@ -451,6 +451,19 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="label">Last Scan</div>
   </div>
 </div>
+<section class="scan-panel" aria-labelledby="portfolioHeading" id="portfolioSection">
+  <h2 id="portfolioHeading" tabindex="-1">Portfolio overview</h2>
+  <p class="muted">Cross-project health for all saved projects. Select a date range to focus the overview.</p>
+  <div class="filters" id="portfolioDays" role="group" aria-label="Portfolio date range">
+    <button type="button" class="secondary" data-portfolio-days="7">7 days</button>
+    <button type="button" class="secondary active" data-portfolio-days="30" aria-pressed="true">30 days</button>
+    <button type="button" class="secondary" data-portfolio-days="90">90 days</button>
+    <button type="button" class="secondary" data-portfolio-days="0">All time</button>
+  </div>
+  <div class="cards" id="portfolioCards" aria-live="polite">
+    <p class="muted">Portfolio summary will appear here.</p>
+  </div>
+</section>
 <div class="charts">
   <div class="chart-container trend">
     <h2>Broken Links Trend</h2>
@@ -1104,6 +1117,30 @@ async function loadAll() {
   }
 }
 
+let portfolioDays = 30;
+
+function setPortfolioDays(days) {
+  portfolioDays = days;
+  document.querySelectorAll('#portfolioDays button').forEach(
+    b => b.classList.remove('active')
+  );
+  const btn = document.querySelector(`#portfolioDays button[data-portfolio-days="${days}"]`);
+  if (btn) btn.classList.add('active');
+  loadPortfolio();
+}
+
+async function loadPortfolio() {
+  const section = document.getElementById('portfolioSection');
+  if (!section) return; // presence guard
+  // Fetch wired in P1
+}
+
+document.querySelectorAll('#portfolioDays button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const days = parseInt(btn.dataset.portfolioDays, 10);
+    setPortfolioDays(days);
+  });
+});
 
 let activeFinding = null; let findingTrigger = null;
 
