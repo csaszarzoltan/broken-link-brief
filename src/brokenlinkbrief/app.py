@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sqlite3
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -37,6 +38,12 @@ from brokenlinkbrief.package import scan_link_detailed, fetch_html
 from brokenlinkbrief.triage import extract_occurrences
 from brokenlinkbrief.scan_history import ScanHistoryStore
 from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
+from brokenlinkbrief.portfolio import (
+    get_portfolio,
+    get_portfolio_rows,
+    get_portfolio_trends,
+    portfolio_rows_to_dicts,
+)
 from brokenlinkbrief.scheduler import ScheduleStore
 from brokenlinkbrief.spa_scanner import SpaScanner
 from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
@@ -1564,6 +1571,81 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
             _write_json(self, 404, {"detail": "not found"})
+            return
+
+        # PORTFOLIO ENDPOINTS
+        if path == "/api/portfolio" or path == "/api/portfolio/summary":
+            expected_token = get_configured_scan_token()
+            if expected_token is not None:
+                provided_token = params.get("token")
+                if provided_token is None and "Authorization" in self.headers:
+                    authorization = self.headers.get("Authorization") or ""
+                    if authorization.startswith("Bearer "):
+                        provided_token = authorization.split(" ", 1)[1]
+                if not is_scan_authorized(provided_token):
+                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
+                    return
+
+            project_ids: list[str] | None = None
+            if params.get("project_ids"):
+                project_ids = [
+                    item.strip()
+                    for item in params["project_ids"].split(",")
+                    if item.strip()
+                ]
+
+            project_store = ProjectStore()
+            history_db = sqlite3.connect(project_store.path, timeout=10)
+            history_db.row_factory = sqlite3.Row
+            try:
+                if path == "/api/portfolio":
+                    rows = get_portfolio_rows(
+                        project_ids=project_ids,
+                        project_store=project_store,
+                        history_db=history_db,
+                        finding_store=FindingStore(),
+                    )
+                    summary = get_portfolio(
+                        project_ids=project_ids,
+                        project_store=project_store,
+                        history_db=history_db,
+                        finding_store=FindingStore(),
+                    )
+                    _write_json(
+                        self,
+                        200,
+                        {
+                            "summary": asdict(summary),
+                            "projects": portfolio_rows_to_dicts(rows),
+                        },
+                    )
+                else:  # /api/portfolio/summary
+                    try:
+                        days = int(params.get("days", "30"))
+                    except (ValueError, TypeError):
+                        days = 30
+                    summary = get_portfolio(
+                        project_ids=project_ids,
+                        project_store=project_store,
+                        history_db=history_db,
+                        finding_store=FindingStore(),
+                    )
+                    trend = get_portfolio_trends(
+                        project_ids=project_ids,
+                        days=days,
+                        project_store=project_store,
+                        history_db=history_db,
+                    )
+                    _write_json(
+                        self,
+                        200,
+                        {
+                            "summary": asdict(summary),
+                            "trend": [asdict(point) for point in trend],
+                        },
+                    )
+            finally:
+                history_db.close()
             return
 
         # SCHEDULED PROJECTS ENDPOINTS
