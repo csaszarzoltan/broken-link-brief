@@ -463,6 +463,7 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="cards" id="portfolioCards" aria-live="polite">
     <p class="muted">Portfolio summary will appear here.</p>
   </div>
+  <div id="portfolioRows" aria-live="polite"></div>
 </section>
 <div class="charts">
   <div class="chart-container trend">
@@ -1132,7 +1133,77 @@ function setPortfolioDays(days) {
 async function loadPortfolio() {
   const section = document.getElementById('portfolioSection');
   if (!section) return; // presence guard
-  // Fetch wired in P1
+  const cards = document.getElementById('portfolioCards');
+  try {
+    const res = await fetch(`/api/portfolio${apiTokenQuery()}`);
+    if (!res.ok) {
+      let detail = `Could not load portfolio (HTTP ${res.status})`;
+      try { const err = await res.json(); if (err && err.detail) detail = err.detail; } catch (_) { /* non-JSON body */ }
+      throw new Error(detail);
+    }
+    const data = await res.json();
+    const summary = data.summary || {};
+    const projects = data.projects || [];
+    if (!projects.length && !(summary.projects > 0)) {
+      renderPortfolioEmpty();
+      return;
+    }
+    renderPortfolioCards(summary);
+    renderPortfolioRows(projects);
+  } catch (e) {
+    renderPortfolioError(e.message || 'Could not load portfolio');
+  }
+}
+
+function renderPortfolioCards(summary) {
+  const cards = document.getElementById('portfolioCards');
+  if (!cards) return;
+  const broken = summary.broken_count ?? 0;
+  const fixed = summary.resolved_findings ?? 0;
+  const total = summary.total_links ?? 0;
+  const health = (typeof summary.health_score === 'number') ? summary.health_score : 100;
+  const healthTone = health >= 90 ? 'good' : (health >= 70 ? 'warn' : 'bad');
+  const cardsHtml =
+    `<div class="card"><div class="value">${total}</div><div class="label">Total Links</div></div>`
+    + `<div class="card"><div class="value">${broken}</div><div class="label">Broken</div></div>`
+    + `<div class="card"><div class="value">${fixed}</div><div class="label">Fixed</div></div>`
+    + `<div class="card"><div class="value health-${healthTone}">${health}/100</div><div class="label">Health Score</div></div>`;
+  cards.innerHTML = cardsHtml;
+}
+
+function renderPortfolioRows(projects) {
+  const container = document.getElementById('portfolioRows');
+  if (!container) return;
+  if (!projects.length) {
+    container.innerHTML = '<p class="muted">No saved projects yet. Save your recurring targets above.</p>';
+    return;
+  }
+  container.innerHTML = projects.map((p) => {
+    const statusTone = p.last_scan_status === 'completed' ? 'good'
+      : (p.last_scan_status === 'failed' ? 'bad' : 'warn');
+    const lastScan = p.last_scan_timestamp
+      ? new Date(p.last_scan_timestamp).toLocaleString() : 'Never scanned';
+    return `<article class="project-item"><div><strong>${escapeHtml(p.project_name)}</strong>`
+      + `<span class="muted">${p.total_links} links · ${p.broken_count} broken · ${p.resolved_findings} fixed</span></div>`
+      + `<div class="recent-actions"><span class="badge ${statusTone}">${escapeHtml(p.last_scan_status)}</span>`
+      + `<span class="muted">last scan ${lastScan}</span></div></article>`;
+  }).join('');
+}
+
+function renderPortfolioEmpty() {
+  const cards = document.getElementById('portfolioCards');
+  if (cards) cards.innerHTML = '<p class="muted">No saved projects yet. Save your recurring targets above.</p>';
+  const rows = document.getElementById('portfolioRows');
+  if (rows) rows.innerHTML = '';
+}
+
+function renderPortfolioError(detail) {
+  const cards = document.getElementById('portfolioCards');
+  if (!cards) return;
+  cards.innerHTML = `<div class="error">Portfolio data could not be loaded: ${escapeHtml(detail)}</div>`
+    + '<button type="button" class="secondary" id="portfolioRetry">Retry</button>';
+  const retry = document.getElementById('portfolioRetry');
+  if (retry) retry.onclick = () => { loadPortfolio(); };
 }
 
 document.querySelectorAll('#portfolioDays button').forEach(btn => {
