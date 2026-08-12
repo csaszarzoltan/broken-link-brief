@@ -461,6 +461,9 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
 <section class="scan-panel" aria-labelledby="portfolioHeading" id="portfolioSection">
   <h2 id="portfolioHeading" tabindex="-1">Portfolio overview</h2>
   <p class="muted">Cross-project health for all saved projects. Select a date range to focus the overview.</p>
+  <div class="recent-actions">
+    <button type="button" id="exportPortfolio" class="secondary">Export CSV</button>
+  </div>
   <div class="filters" id="portfolioDays" role="group" aria-label="Portfolio date range">
     <button type="button" class="secondary" data-portfolio-days="7">7 days</button>
     <button type="button" class="secondary active" data-portfolio-days="30" aria-pressed="true">30 days</button>
@@ -471,6 +474,10 @@ _DASHBOARD_HTML = """<!DOCTYPE html>
     <p class="muted">Portfolio summary will appear here.</p>
   </div>
   <div id="portfolioRows" aria-live="polite"></div>
+  <div class="chart-container trend">
+    <h2>Portfolio Broken-Links Trend</h2>
+    <canvas id="portfolioTrendCanvas"></canvas>
+  </div>
 </section>
 <div class="charts">
   <div class="chart-container trend">
@@ -1126,6 +1133,8 @@ async function loadAll() {
 }
 
 let portfolioDays = 30;
+let portfolioProjects = [];
+let portfolioTrendChart = null;
 
 function setPortfolioDays(days) {
   portfolioDays = days;
@@ -1141,25 +1150,74 @@ async function loadPortfolio() {
   const section = document.getElementById('portfolioSection');
   if (!section) return; // presence guard
   const cards = document.getElementById('portfolioCards');
+  const canvas = document.getElementById('portfolioTrendCanvas');
+  cards.innerHTML = '<p class="muted">Loading portfolio…</p>';
   try {
-    const res = await fetch(`/api/portfolio${apiTokenQuery()}`);
-    if (!res.ok) {
-      let detail = `Could not load portfolio (HTTP ${res.status})`;
-      try { const err = await res.json(); if (err && err.detail) detail = err.detail; } catch (_) { /* non-JSON body */ }
+    const [portfolioRes, trendRes] = await Promise.all([
+      fetch(`/api/portfolio${apiTokenQuery()}`),
+      fetch(`/api/portfolio/summary?days=${portfolioDays}${apiTokenQuery()}`),
+    ]);
+    if (!portfolioRes.ok || !trendRes.ok) {
+      let detail = `Could not load portfolio (HTTP ${portfolioRes.status})`;
+      try {
+        const err = await portfolioRes.json();
+        if (err && err.detail) detail = err.detail;
+      } catch (_) { /* non-JSON body */ }
       throw new Error(detail);
     }
-    const data = await res.json();
+    const data = await portfolioRes.json();
+    const trendData = await trendRes.json();
     const summary = data.summary || {};
     const projects = data.projects || [];
+    portfolioProjects = projects;
     if (!projects.length && !(summary.projects > 0)) {
       renderPortfolioEmpty();
+      renderPortfolioTrend(null);
       return;
     }
     renderPortfolioCards(summary);
     renderPortfolioRows(projects);
+    renderPortfolioTrend(trendData.trend || []);
   } catch (e) {
     renderPortfolioError(e.message || 'Could not load portfolio');
   }
+}
+
+function renderPortfolioTrend(trend) {
+  const canvas = document.getElementById('portfolioTrendCanvas');
+  if (!canvas) return;
+  if (portfolioTrendChart) portfolioTrendChart.destroy();
+  if (!trend || !trend.length) return;
+  portfolioTrendChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: trend.map(d => d.date),
+      datasets: [
+        {
+          label: 'Total links',
+          data: trend.map(d => d.total_links),
+          borderColor: '#0f3460',
+          backgroundColor: 'rgba(15,52,96,0.1)',
+          fill: true, tension: 0.3,
+        },
+        {
+          label: 'Broken links',
+          data: trend.map(d => d.broken_count),
+          borderColor: '#e94560',
+          backgroundColor: 'rgba(233,69,96,0.1)',
+          fill: true, tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#8892b0' } } },
+      scales: {
+        x: { ticks: { color: '#8892b0' } },
+        y: { ticks: { color: '#8892b0' } },
+      },
+    },
+  });
 }
 
 function renderPortfolioCards(summary) {
@@ -1202,6 +1260,10 @@ function renderPortfolioEmpty() {
   if (cards) cards.innerHTML = '<p class="muted">No saved projects yet. Save your recurring targets above.</p>';
   const rows = document.getElementById('portfolioRows');
   if (rows) rows.innerHTML = '';
+  if (portfolioTrendChart) {
+    portfolioTrendChart.destroy();
+    portfolioTrendChart = null;
+  }
 }
 
 function renderPortfolioError(detail) {
@@ -1211,6 +1273,29 @@ function renderPortfolioError(detail) {
     + '<button type="button" class="secondary" id="portfolioRetry">Retry</button>';
   const retry = document.getElementById('portfolioRetry');
   if (retry) retry.onclick = () => { loadPortfolio(); };
+}
+
+function exportPortfolioCsv() {
+  const header = 'project_name,total_links,broken_count,open_findings,resolved_findings,last_scan_timestamp';
+  const rows = [header.split(',')];
+  portfolioProjects.forEach((p) => {
+    rows.push([
+      p.project_name, p.total_links, p.broken_count,
+      p.open_findings, p.resolved_findings, p.last_scan_timestamp || '',
+    ]);
+  });
+  const csv = rows.map(row => row.map(escapeCsvCell).join(',')).join('\n') + '\n';
+  const blob = new Blob([csv], {type: 'text/csv;charset=utf-8'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'portfolio-export.csv';
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+const exportPortfolioBtn = document.getElementById('exportPortfolio');
+if (exportPortfolioBtn) {
+  exportPortfolioBtn.addEventListener('click', exportPortfolioCsv);
 }
 
 document.querySelectorAll('#portfolioDays button').forEach(btn => {
