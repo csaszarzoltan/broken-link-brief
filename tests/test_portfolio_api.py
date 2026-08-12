@@ -35,8 +35,63 @@ from pathlib import Path
 
 import pytest
 
+from brokenlinkbrief.confidence import ProbeAttempt
+from brokenlinkbrief.finding_service import FindingService
+from brokenlinkbrief.findings import FindingStore
 from brokenlinkbrief.projects import ProjectStore
 from brokenlinkbrief.scan_history import ScanHistoryStore
+from brokenlinkbrief.triage import extract_occurrences
+
+
+def _seed_findings(
+    finding_store: FindingStore,
+    project_id: str,
+    open_count: int,
+    resolved_count: int,
+) -> None:
+    """Seed ``open_count`` OPEN + ``resolved_count`` RESOLVED findings for a project.
+
+    Uses the real FindingService.observe / FindingStore.verify pipeline so the
+    project_findings rows carry genuine states (OPEN via CONFIRMED_BROKEN
+    observations, RESOLVED via RECOVERED verifications).
+    """
+    service = FindingService(finding_store)
+    for i in range(open_count):
+        occurrence = extract_occurrences(
+            "https://site.test/source",
+            f'<a href="/missing-{project_id}-o{i}">Anchor</a>',
+        )[0]
+        service.observe(
+            project_id,
+            occurrence,
+            [
+                ProbeAttempt("HEAD", 404, None, 0.01),
+                ProbeAttempt("GET", 404, None, 0.02),
+            ],
+        )
+    for i in range(resolved_count):
+        occurrence = extract_occurrences(
+            "https://site.test/source",
+            f'<a href="/missing-{project_id}-r{i}">Anchor</a>',
+        )[0]
+        finding = service.observe(
+            project_id,
+            occurrence,
+            [
+                ProbeAttempt("HEAD", 404, None, 0.01),
+                ProbeAttempt("GET", 404, None, 0.02),
+            ],
+        )
+        assert finding is not None
+        service.verify(
+            finding["id"],
+            finding["version"],
+            [
+                ProbeAttempt("HEAD", 200, None, 0.01),
+                ProbeAttempt("GET", 200, None, 0.02),
+            ],
+            {"https://site.test/source": "<p>removed</p>"},
+        )
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -508,6 +563,43 @@ class TestPortfolioAggregationBehavior:
         assert summary.total_links == 9
         assert summary.broken_count == 1
 
+    def test_rows_attribue_findings_per_project(
+        self, tmp_path: Path,
+        portfolio_db: sqlite3.Connection,
+        portfolio_project_store: ProjectStore,
+        seeded_portfolio,
+    ) -> None:
+        """Each row carries ITS OWN project's open/resolved finding counts.
+
+        Regression for the blocker: the aggregate open/resolved totals used to be
+        broadcast to every row. Seeded per project — A: 1 OPEN + 1 RESOLVED,
+        B: 1 OPEN — so the per-row numbers must differ from the totals.
+        """
+        from brokenlinkbrief.portfolio import get_portfolio_rows
+
+        finding_store = FindingStore(tmp_path / "findings.db")
+        finding_store.ensure_project(
+            seeded_portfolio["alpha"].id, "Alpha"
+        )
+        finding_store.ensure_project(seeded_portfolio["beta"].id, "Beta")
+        _seed_findings(finding_store, seeded_portfolio["alpha"].id, 1, 1)
+        _seed_findings(finding_store, seeded_portfolio["beta"].id, 1, 0)
+
+        rows = get_portfolio_rows(
+            project_ids=None,
+            project_store=portfolio_project_store,
+            history_db=portfolio_db,
+            finding_store=finding_store,
+        )
+        by_id = {r.project_id: r for r in rows}
+        alpha = by_id[seeded_portfolio["alpha"].id]
+        beta = by_id[seeded_portfolio["beta"].id]
+
+        assert alpha.open_findings == 1, alpha
+        assert alpha.resolved_findings == 1, alpha
+        assert beta.open_findings == 1, beta
+        assert beta.resolved_findings == 0, beta
+
     def test_trend_returns_ascending_daily_points(
         self, portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
@@ -668,6 +760,85 @@ class TestPortfolioHttpEndpoint:
                 "archived",
             ):
                 assert key in row, f"Missing row key: {key}"
+
+    def test_portfolio_rows_attribue_findings_per_project_http(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GET /api/portfolio attributes findings per project, not totals.
+
+        Regression for the blocker: the aggregate open/resolved totals used
+        to be broadcast to every row. Seeded per project — A: 1 OPEN + 1
+        RESOLVED, B: 1 OPEN — via the real FindingService pipeline into the
+        same DB file the HTTP handler reads (BROKENLINKBRIEF_PROJECT_DB).
+        """
+        from brokenlinkbrief.app import _Handler
+
+        project_db = tmp_path / "projects.db"
+        monkeypatch.setenv("BROKENLINKBRIEF_PROJECT_DB", str(project_db))
+        monkeypatch.setenv("BROKENLINKBRIEF_SCAN_TOKEN", "test-token")
+
+        project_store = ProjectStore(project_db)
+        alpha = project_store.create("Alpha", ["https://alpha.example.com/"])
+        beta = project_store.create("Beta", ["https://beta.example.com/"])
+
+        # scan_history table (schema defined in the portfolio test fixtures;
+        # no src module creates it) + one record per project so the rows are
+        # not dropped by the portfolio aggregation.
+        db = sqlite3.connect(project_db)
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA foreign_keys=ON")
+        db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS scan_history (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                scan_timestamp TEXT NOT NULL,
+                total_urls INTEGER NOT NULL,
+                total_links INTEGER NOT NULL,
+                broken_count INTEGER NOT NULL,
+                new_broken_count INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'completed',
+                raw_results_json TEXT,
+                last_known_good_hash TEXT,
+                regression_flags TEXT,
+                FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
+            )
+            """
+        )
+        ScanHistoryStore(db).record_scan(
+            alpha.id, total_urls=10, total_links=50, broken_count=5,
+        )
+        ScanHistoryStore(db).record_scan(
+            beta.id, total_urls=5, total_links=20, broken_count=8,
+        )
+        db.commit()
+        db.close()
+
+        finding_store = FindingStore(project_db)
+        finding_store.ensure_project(alpha.id, "Alpha")
+        finding_store.ensure_project(beta.id, "Beta")
+        _seed_findings(finding_store, alpha.id, 1, 1)
+        _seed_findings(finding_store, beta.id, 1, 0)
+
+        server = HTTPServer(("127.0.0.1", 0), _Handler)
+        port = server.server_address[1]
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        try:
+            status, body, _ = _request(
+                port, "/api/portfolio?token=test-token"
+            )
+            assert status == 200, f"Expected 200, got {status}"
+            assert body is not None
+            projects = {row["project_id"]: row for row in body["projects"]}
+            assert projects[alpha.id]["open_findings"] == 1, projects[alpha.id]
+            assert projects[alpha.id]["resolved_findings"] == 1, (
+                projects[alpha.id]
+            )
+            assert projects[beta.id]["open_findings"] == 1, projects[beta.id]
+            assert projects[beta.id]["resolved_findings"] == 0, projects[beta.id]
+        finally:
+            server.shutdown()
 
 
 class TestPortfolioSummaryEndpoint:

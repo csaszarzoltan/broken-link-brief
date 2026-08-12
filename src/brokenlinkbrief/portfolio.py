@@ -108,7 +108,7 @@ def _finding_counts(
     """
     if not project_ids:
         return 0, 0
-    placeholders = ",".join("?" for _ in project_ids)
+    placeholders = ", ".join("?" for _ in project_ids)
     try:
         rows = db.execute(
             "SELECT state, COUNT(*) AS n FROM project_findings "
@@ -125,6 +125,65 @@ def _finding_counts(
         elif row["state"] == "RESOLVED":
             resolved_findings += row["n"]
     return open_findings, resolved_findings
+
+
+def _per_project_finding_counts(
+    db: sqlite3.Connection,
+    project_ids: list[str],
+) -> dict[str, tuple[int, int]]:
+    """Per-project (open, resolved) finding counts in ONE indexed query.
+
+    ``GROUP BY project_id, state`` over the full list — the index on
+    (project_id, state, last_seen_at) serves it directly (no N+1).  Projects
+    without findings are absent from the result (callers default to 0, 0).
+    Tolerates a DB without the findings tables by returning an empty dict.
+    """
+    if not project_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in project_ids)
+    try:
+        rows = db.execute(
+            "SELECT project_id, state, COUNT(*) AS n FROM project_findings "
+            f"WHERE project_id IN ({placeholders}) GROUP BY project_id, state",
+            project_ids,
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    counts: dict[str, tuple[int, int]] = {}
+    for row in rows:
+        open_findings, resolved_findings = counts.get(row["project_id"], (0, 0))
+        if row["state"] == "OPEN":
+            open_findings += row["n"]
+        elif row["state"] == "RESOLVED":
+            resolved_findings += row["n"]
+        counts[row["project_id"]] = (open_findings, resolved_findings)
+    return counts
+
+
+def _finding_counts_for(
+    finding_store: FindingStore | None,
+    history_db: sqlite3.Connection,
+    project_ids: list[str],
+) -> dict[str, tuple[int, int]]:
+    """Per-project (open, resolved) counts, honoring the finding store.
+
+    When ``finding_store`` is given, its own DB is queried (the store may
+    live in a different file than the scan history DB — e.g. isolated
+    tests); the scan ``history_db`` is the fallback (same file in
+    production).  Absent table → empty dict → zeros for every project.
+    """
+    if finding_store is not None:
+        try:
+            store_db = sqlite3.connect(finding_store.path, timeout=10)
+            store_db.row_factory = sqlite3.Row
+            try:
+                return _per_project_finding_counts(store_db, project_ids)
+            finally:
+                store_db.close()
+        except sqlite3.Error:
+            return {}
+    return _per_project_finding_counts(history_db, project_ids)
+
 
 
 def _latest_scans(
@@ -171,20 +230,16 @@ def get_portfolio_rows(
     try:
         ids = [p.id for p in projects]
         latest = _latest_scans(db, ids)
-        open_findings, resolved_findings = _finding_counts(db, ids)
+        per_project_counts = _finding_counts_for(finding_store, db, ids)
     finally:
         if own_db:
             db.close()
 
-    per_project_open = open_findings
-    per_project_resolved = resolved_findings
-    # Fall back to per-project queries only when the aggregate split is
-    # unavailable (findings table absent → zeros for every project).
-    if finding_store is not None and (open_findings or resolved_findings) == 0:
-        per_project_open = per_project_resolved = 0
-
     rows: list[PortfolioProjectRow] = []
     for project in projects:
+        open_findings, resolved_findings = per_project_counts.get(
+            project.id, (0, 0)
+        )
         record = latest.get(project.id)
         if record is not None:
             rows.append(
@@ -194,8 +249,8 @@ def get_portfolio_rows(
                     total_links=int(record["total_links"] or 0),
                     broken_count=int(record["broken_count"] or 0),
                     new_broken_count=int(record["new_broken_count"] or 0),
-                    open_findings=per_project_open,
-                    resolved_findings=per_project_resolved,
+                    open_findings=open_findings,
+                    resolved_findings=resolved_findings,
                     last_scan_timestamp=record["scan_timestamp"],
                     last_scan_status=record["status"] or "completed",
                     pinned=project.pinned,
@@ -210,8 +265,8 @@ def get_portfolio_rows(
                     total_links=0,
                     broken_count=0,
                     new_broken_count=0,
-                    open_findings=0,
-                    resolved_findings=0,
+                    open_findings=open_findings,
+                    resolved_findings=resolved_findings,
                     last_scan_timestamp=None,
                     last_scan_status="never_run",
                     pinned=project.pinned,
