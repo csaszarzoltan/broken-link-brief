@@ -1,5 +1,35 @@
 # Changelog
 
+## v1.5.0 (2026-08-12)
+
+### Features
+- **Multi-site portfolio dashboard** — `/dashboard/portfolio` page with per-project rows (latest scan time, open/resolved findings), summary cards (projects, open findings, resolved), trend chart with date-range filter, and CSV export
+- **Portfolio aggregation API** — `GET /api/portfolio` (project rows with per-project open/resolved counts), `GET /api/portfolio/summary?days=` (aggregate totals + trend); per-project attribution via single indexed `GROUP BY project_id, state` query
+- **Evidence-aware repair workflow** — bounded evidence classification, durable source-aware project findings, optimistic lifecycle actions, targeted Verify Fix, additive findings APIs, and an accessible dashboard workspace
+- **Durable scan jobs** — persistent saved-project jobs with source progress, idempotent creation, cancellation, and failed-source retry
+- **Versioned host policies** — exact-host policy versioning with additive APIs and an accessible job dashboard
+- **Recoverable job leases** — worker-owned leases with heartbeat validation, exclusive job claims, and expired-lease recovery that never repeats committed sources
+- **Immutable job policy snapshots** — project/policy-scoped caching for eligible evidence, so in-flight jobs keep a consistent policy view
+- **Applied scan policies** — effective timeout, attempt-count, temporary-status, and exponential-backoff policies applied to detailed probes; a dedicated heartbeat loop preserves job ownership during blocked source requests
+
+### Fixes
+- **SSRF bypass closed** — extracted and stored target/source URLs are validated before project-finding probes and Verify Fix requests
+- **Per-project findings attribution** — portfolio rows now show their own project's open/resolved counts instead of the aggregate totals broadcast to every row
+- **Project integrity** — foreign-key integrity, project existence checks, and archived-project read-only enforcement
+- **Expired ignores** — automatically reopened after successful verification
+- **Occurrence search** — by source URL and anchor text; occurrence activation/deactivation reconciliation after successful verification
+- **Filter validation** — state and classification filters validated; credential-like values redacted from persisted error evidence
+- **Playwright tests** — skip cleanly when Chromium cannot launch instead of producing false failures
+
+### Tests
+- **Portfolio API tests** — per-project attribution regression tests (A=1/1, B=1/0), API shape, filters, and edge inputs
+- **Dashboard UI tests** — dashboard cards, chart, empty state, error toast, and export contract
+- **Verification outcomes coverage** — regression coverage for all four outcomes: RECOVERED, REMOVED_FROM_SOURCE, STILL_BROKEN, INCONCLUSIVE
+- Full suite: 911 passed / 42 skipped / 1 xpassed / 0 failures
+
+### Docs
+- **Portfolio dashboard analysis brief** — design and API contract for the portfolio dashboard feature
+
 ## v1.2.0 (2026-08-03)
 
 ### Features
