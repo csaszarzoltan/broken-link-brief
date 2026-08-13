@@ -890,3 +890,24 @@ class TestPortfolioSummaryEndpoint:
         """No token → 401."""
         status, _, _ = _request(_start_server, "/api/portfolio/summary")
         assert status == 401, f"Expected 401, got {status}"
+
+    def test_summary_huge_days_does_not_500(self, _start_server: int) -> None:
+        """Out-of-range `days` must NOT crash into an unhandled 500.
+
+        Regression for the OverflowError raised when a huge integer flows
+        into timedelta(days=...) in get_portfolio_trends. Both a huge positive
+        and negative value should return a clean 2xx (clamped to all-history)
+        with valid JSON rather than a 500 / connection reset.
+        """
+        for days in ("1000000000000000", "-1000000000000000"):
+            status, body, _ = _request(
+                _start_server,
+                f"/api/portfolio/summary?token=test-token&days={days}",
+            )
+            assert 200 <= status < 500, (
+                f"days={days} must return a clean 2xx/4xx, got {status}"
+            )
+            assert body is not None, f"days={days} returned invalid JSON"
+            assert "summary" in body and "trend" in body, (
+                f"days={days} response missing summary/trend keys"
+            )

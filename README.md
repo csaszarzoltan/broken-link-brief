@@ -18,6 +18,10 @@ A compact stdlib-based service that scans a page for links, checks their HTTP st
 - 🔒 Optional token-based authentication
 - 📝 JSONL usage logging for analytics
 - 🛡️ SSRF protection for URL validation
+- 📊 **Portfolio dashboard** — multi-site health overview with summary cards, per-project rows, daily trend chart, date-range filter, and CSV export (v1.5.0)
+
+## Screenshots
+![Portfolio dashboard](./docs/portfolio-dashboard-screenshot.png)
 
 ## Quick Start
 
@@ -53,6 +57,11 @@ curl "http://127.0.0.1:8000/scan?url=https://example.com&render_js=true"
 | POST | `/webhooks` | Required | Register a webhook URL |
 | GET | `/webhooks` | Required | List registered webhooks |
 | DELETE | `/webhooks/<id>` | Required | Remove a webhook |
+| GET | `/api/portfolio` | Optional | Portfolio summary + per-project rows (v1.5.0) |
+| GET | `/api/portfolio/summary` | Optional | Portfolio totals + daily trend (v1.5.0) |
+| GET | `/dashboard` | Optional | Dashboard HTML incl. portfolio section (v1.5.0) |
+| GET | `/api/projects` | Optional | List saved projects |
+| GET | `/api/jobs` | Optional | List scan jobs |
 
 ## Batch Scanning
 
@@ -680,6 +689,27 @@ For the HTML dashboard, append `?token=your-token` to the URL:
 ```
 http://127.0.0.1:8000/dashboard?token=your-token
 ```
+
+### Portfolio overview
+
+The dashboard includes a **multi-site portfolio section** (v1.5.0) that aggregates
+the latest scan of every saved project into summary cards, a per-project table,
+and a daily broken-link trend chart. See
+[docs/portfolio-dashboard.md](docs/portfolio-dashboard.md) for the full guide.
+
+- Access: open `/dashboard` (append `?token=your-token` when
+  `BROKENLINKBRIEF_SCAN_TOKEN` is set).
+- Date range filter: 7 days · 30 days (default) · 90 days · All time (`days=0`).
+  The filter controls the trend chart only; summary cards and rows always use the
+  latest scan per project.
+- CSV export: the **Export CSV** button downloads `portfolio-export.csv` with RFC
+  4180 quoting and spreadsheet formula-injection protection (CWE-1236).
+- Empty state: "No saved projects yet. Save your recurring targets above." appears
+  until you save a project and run a scan.
+
+The TypeScript client example that mirrors this section is in
+[`examples/portfolio-example.ts`](examples/portfolio-example.ts), and a helper to
+seed a demo database is in [`tools/_seed_portfolio_demo.py`](tools/_seed_portfolio_demo.py).
 
 ### Dark Theme
 
