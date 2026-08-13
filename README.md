@@ -1033,3 +1033,11 @@ Durable jobs now use worker leases so interrupted work can be recovered without 
 ### Policy-aware probing and active job heartbeats
 
 Detailed link probes now accept an immutable effective scan policy. Policy timeout, maximum attempts, retryable temporary statuses, and exponential backoff are applied without changing legacy callers. Durable job workers renew their lease on a dedicated heartbeat thread while source requests are blocked, preventing healthy long-running work from being reclaimed.
+
+## Dokumentáció
+
+- [Engineering Standards](docs/engineering-standards.md) — kötelező olvasmány kódírás előtt
+- [Döntések / tanulságok](docs/decisions/) — javított hibák és anti-minták
+- [Specifikációk](docs/specs/) — feature-ök kanonikus követelményei
+
+- [Módszertan](docs/METHODOLOGY.md) — a lab fejlesztési módszertana (kötelező olvasmány)
