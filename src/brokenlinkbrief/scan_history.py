@@ -107,7 +107,7 @@ class ScanHistoryStore:
             ORDER BY scan_timestamp DESC LIMIT ? OFFSET ?""",
             (project_id, limit, offset),
         ).fetchall()
-        return [ScanRecord(**{k: r[k] for k in r.keys()}) for r in rows]
+        return [ScanRecord(**{k: r[k] for k in r.keys()}) for r in rows]  # noqa: SIM118 - sqlite3.Row iteration yields values, not keys
 
     def update_regression_flags(self, scan_id: str, flags: list[str]) -> None:
         """Update regression flags for a scan."""
