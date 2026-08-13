@@ -136,55 +136,18 @@ class DiffDetector:
         for url in sorted(all_urls):
             curr = current_by_url.get(url)
             prev = prev_by_url.get(url)
-
-            curr_status = curr.get("status") if curr else None
-            curr_reason = curr.get("reason") if curr else None
-            prev_status = prev.get("status") if prev else None
-            prev_reason = prev.get("reason") if prev else None
-
-            curr_broken = (curr_status is not None and curr_status >= 400) or (
-                curr_status is None and curr is not None and curr_reason is not None
-            )
-            prev_broken = (prev_status is not None and prev_status >= 400) or (
-                prev_status is None and prev is not None and prev_reason is not None
-            )
-
-            if prev is None and curr is not None:
+            category, entry = self._classify_link(url, curr, prev)
+            if category == "new":
                 if has_previous:
-                    new_links.append({
-                        "url": url,
-                        "status": curr_status,
-                        "reason": curr_reason,
-                    })
-            elif prev is not None and curr is None:
-                removed_links.append({
-                    "url": url,
-                    "status": prev_status,
-                    "reason": prev_reason,
-                })
-            elif prev is not None and curr is not None:
-                if not prev_broken and curr_broken:
-                    # Was healthy, now broken → new_broken
-                    entry: dict[str, Any] = {"url": url, "status": curr_status}
-                    if curr_reason:
-                        entry["reason"] = curr_reason
-                    if prev_status is not None:
-                        entry["previous_status"] = prev_status
-                    new_broken.append(entry)
-                elif prev_broken and not curr_broken:
-                    # Was broken, now healthy → resolved
-                    resolved.append({
-                        "url": url,
-                        "previous_status": prev_status,
-                        "current_status": curr_status,
-                    })
-                elif prev_broken and curr_broken and prev_status != curr_status:
-                    # Both broken but different status → status_change
-                    status_changes.append({
-                        "url": url,
-                        "previous_status": prev_status,
-                        "current_status": curr_status,
-                    })
+                    new_links.append(entry)
+            elif category == "removed":
+                removed_links.append(entry)
+            elif category == "new_broken":
+                new_broken.append(entry)
+            elif category == "resolved":
+                resolved.append(entry)
+            elif category == "status_change":
+                status_changes.append(entry)
 
         # Currently-broken links not in previous scan
         for url, link_data in current_by_url.items():
@@ -216,3 +179,63 @@ class DiffDetector:
             removed_links=removed_links,
             has_changes=has_changes,
         )
+
+    @staticmethod
+    def _classify_link(
+        url: str,
+        curr: dict[str, Any] | None,
+        prev: dict[str, Any] | None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Classify a single URL's change between current and previous state.
+
+        Returns a (category, entry) pair. Category is one of:
+        "new", "removed", "new_broken", "resolved", "status_change" or "none".
+        """
+        curr_status = curr.get("status") if curr else None
+        curr_reason = curr.get("reason") if curr else None
+        prev_status = prev.get("status") if prev else None
+        prev_reason = prev.get("reason") if prev else None
+
+        curr_broken = (curr_status is not None and curr_status >= 400) or (
+            curr_status is None and curr is not None and curr_reason is not None
+        )
+        prev_broken = (prev_status is not None and prev_status >= 400) or (
+            prev_status is None and prev is not None and prev_reason is not None
+        )
+
+        if prev is None and curr is not None:
+            return "new", {
+                "url": url,
+                "status": curr_status,
+                "reason": curr_reason,
+            }
+        if prev is not None and curr is None:
+            return "removed", {
+                "url": url,
+                "status": prev_status,
+                "reason": prev_reason,
+            }
+        if prev is not None and curr is not None:
+            if not prev_broken and curr_broken:
+                # Was healthy, now broken → new_broken
+                entry: dict[str, Any] = {"url": url, "status": curr_status}
+                if curr_reason:
+                    entry["reason"] = curr_reason
+                if prev_status is not None:
+                    entry["previous_status"] = prev_status
+                return "new_broken", entry
+            if prev_broken and not curr_broken:
+                # Was broken, now healthy → resolved
+                return "resolved", {
+                    "url": url,
+                    "previous_status": prev_status,
+                    "current_status": curr_status,
+                }
+            if prev_broken and curr_broken and prev_status != curr_status:
+                # Both broken but different status → status_change
+                return "status_change", {
+                    "url": url,
+                    "previous_status": prev_status,
+                    "current_status": curr_status,
+                }
+        return "none", {}

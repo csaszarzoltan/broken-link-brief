@@ -1,4 +1,5 @@
 """BrokenLinkBrief stdlib HTTP server."""
+
 from __future__ import annotations
 
 import json
@@ -6,6 +7,7 @@ import os
 import socket
 import sqlite3
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -16,10 +18,14 @@ from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from brokenlinkbrief import __version__
+from brokenlinkbrief.finding_service import FindingService
+from brokenlinkbrief.findings import FindingStore, VersionConflict
+from brokenlinkbrief.job_service import JobService
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
     HistoryStore,
     compute_diff,
+    fetch_html,
     get_configured_scan_token,
     get_history,
     is_scan_authorized,
@@ -28,28 +34,25 @@ from brokenlinkbrief.package import (
     render_jsonl,
     render_markdown,
     scan_batch,
+    scan_link_detailed,
     scan_page,
     validate_scan_url,
 )
-from brokenlinkbrief.projects import ProjectStore
-from brokenlinkbrief.findings import FindingStore, VersionConflict
-from brokenlinkbrief.finding_service import FindingService
-from brokenlinkbrief.package import scan_link_detailed, fetch_html
-from brokenlinkbrief.triage import extract_occurrences
-from brokenlinkbrief.scan_history import ScanHistoryStore
-from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
 from brokenlinkbrief.portfolio import (
     get_portfolio,
     get_portfolio_rows,
     get_portfolio_trends,
     portfolio_rows_to_dicts,
 )
-from brokenlinkbrief.scheduler import ScheduleStore
-from brokenlinkbrief.spa_scanner import SpaScanner
-from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
-from brokenlinkbrief.job_service import JobService
+from brokenlinkbrief.projects import ProjectStore
+from brokenlinkbrief.scan_history import ScanHistoryStore
 from brokenlinkbrief.scan_jobs import JobConflict
 from brokenlinkbrief.scan_policy import PolicyConflict, ScanPolicyStore
+from brokenlinkbrief.scheduled_projects import aggregate_scheduled_projects
+from brokenlinkbrief.scheduler import ScheduleStore
+from brokenlinkbrief.spa_scanner import SpaScanner
+from brokenlinkbrief.triage import extract_occurrences
+from brokenlinkbrief.webhook import WebhookRegistry, trigger_webhooks
 
 _AUTH_DETAIL = "missing or invalid scan token"
 _LOG_TOKEN_ENV = "BROKENLINKBRIEF_LOG_FILE"
@@ -57,6 +60,7 @@ _webhook_registry = WebhookRegistry()
 _notifier_config = NotifierConfig.from_env()
 _rate_limiter = RateLimiter(capacity=10, fill_rate=0.1667)  # ~10 per 60s
 _job_service: JobService | None = None
+
 
 def _jobs() -> JobService:
     global _job_service
@@ -202,6 +206,319 @@ def _get_log_file():
     if path:
         return open(path, "a", encoding="utf-8")
     return sys.stderr
+
+
+def _bearer_token(
+    params: dict[str, str],
+    headers: BaseHTTPRequestHandler,
+) -> str | None:
+    """Resolve the scan token from query params or Authorization header."""
+    provided = params.get("token")
+    if provided is None:
+        authorization = headers.get("Authorization") or ""
+        if authorization.startswith("Bearer "):
+            provided = authorization.split(" ", 1)[1]
+    return provided
+
+
+def _require_scan_auth(
+    handler: BaseHTTPRequestHandler,
+    params: dict[str, str],
+) -> bool:
+    """Authorize the request; write 401 and return False when rejected."""
+    expected_token = get_configured_scan_token()
+    if expected_token is None:
+        return True
+    if not is_scan_authorized(_bearer_token(params, handler.headers)):
+        _write_json(handler, 401, {"detail": _AUTH_DETAIL})
+        return False
+    return True
+
+
+def _parse_query(path: str) -> dict[str, str]:
+    parsed = urlparse(path)
+    return {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
+
+
+def _read_json_body(
+    handler: BaseHTTPRequestHandler,
+) -> dict[str, Any] | None:
+    """Read and parse a JSON request body; write 400 and return None on error."""
+    content_length = int(handler.headers.get("Content-Length", 0))
+    raw_body = handler.rfile.read(content_length) if content_length else b""
+    try:
+        body = json.loads(raw_body)
+    except (json.JSONDecodeError, ValueError):
+        _write_json(handler, 400, {"code": "invalid_json", "detail": "invalid JSON"})
+        return None
+    if not isinstance(body, dict):
+        _write_json(
+            handler,
+            400,
+            {"code": "invalid_json", "detail": "JSON body must be an object"},
+        )
+        return None
+    return body
+
+
+def _validate_targets(
+    handler: BaseHTTPRequestHandler,
+    targets: Any,
+) -> bool:
+    """Validate a list of target URLs; write 400 and return False when invalid."""
+    if not isinstance(targets, list):
+        _write_json(
+            handler,
+            400,
+            {"code": "invalid_targets", "detail": "targets must be a list"},
+        )
+        return False
+    for target in targets:
+        if not isinstance(target, str):
+            _write_json(
+                handler,
+                400,
+                {"code": "invalid_target", "detail": "every target must be a string"},
+            )
+            return False
+        error = validate_scan_url(target)
+        if error is not None:
+            _write_json(
+                handler,
+                400,
+                {
+                    "code": "unsafe_target",
+                    "detail": f"Target URL is not allowed: {error}",
+                },
+            )
+            return False
+    return True
+
+
+def _fire_webhooks(target_url: str, scan_results: list[Any]) -> None:
+    """Trigger webhooks asynchronously and notify synchronously on changes."""
+
+    def _fire() -> None:
+        trigger_webhooks(_webhook_registry, target_url, scan_results)
+
+    threading.Thread(target=_fire, daemon=True).start()
+    notify_all(_notifier_config, scan_results, target_url, _rate_limiter)
+
+
+def _record_scan_and_notify(
+    target_url: str,
+    scan_results: list[Any],
+) -> None:
+    """Record a scan in history and fire webhooks/notifications on changes."""
+    record_scan(scan_results, target_url)
+
+    history = get_history(target_url, limit=2)
+    if len(history) >= 2:
+        previous_results = history[1].get("results", [])
+        current_results = [{"url": r.url, "status": r.status} for r in scan_results]
+        diff = compute_diff(previous_results, current_results)
+        if diff.get("added_broken") or diff.get("fixed"):
+            _fire_webhooks(target_url, scan_results)
+    elif scan_results:
+        broken = [r for r in scan_results if r.status and r.status >= 400]
+        if broken:
+            _fire_webhooks(target_url, scan_results)
+
+
+def _write_scan_response(
+    handler: BaseHTTPRequestHandler,
+    target_url: str,
+    scan_results: list[Any],
+    response_format: str | None,
+    latency: float,
+) -> None:
+    """Write the /scan response in the requested format."""
+    if response_format is not None:
+        lower = response_format.lower()
+        if lower == "csv":
+            _log_scan(target_url, scan_results, response_format, latency)
+            _write_csv(handler, render_csv(scan_results))
+            return
+        if lower == "markdown":
+            _log_scan(target_url, scan_results, response_format, latency)
+            _write_markdown(handler, render_markdown(scan_results))
+            return
+        if lower == "jsonl":
+            _log_scan(target_url, scan_results, response_format, latency)
+            _write_jsonl(handler, render_jsonl(scan_results))
+            return
+
+    _log_scan(target_url, scan_results, "json", latency)
+    results = [result.__dict__ for result in scan_results]
+    _write_json(handler, 200, results)
+
+
+def _scan_project_targets(target_url: str, project_id: str) -> None:
+    """Verify a saved project target and observe trusted findings for it."""
+    project = ProjectStore().get(project_id)
+    if target_url not in project.targets or project.archived:
+        raise ValueError("target is not active in this project")
+    source_body = fetch_html(target_url)
+    if source_body is not None:
+        service = FindingService(FindingStore())
+        for occurrence in extract_occurrences(target_url, source_body):
+            occurrence_error = validate_scan_url(occurrence.target_url)
+            if occurrence_error is not None:
+                continue
+            detail = scan_link_detailed(occurrence.target_url)
+            service.observe(project_id, occurrence, list(detail.attempts))
+
+
+def _handle_scan(
+    handler: BaseHTTPRequestHandler,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /scan."""
+    if not _require_scan_auth(handler, params):
+        return
+    target_url = params.get("url")
+    if not target_url:
+        _write_json(handler, 400, {"detail": "missing url query parameter"})
+        return
+
+    validation_error = validate_scan_url(target_url)
+    if validation_error is not None:
+        _write_json(
+            handler,
+            400,
+            {
+                "code": "unsafe_target",
+                "detail": f"Target URL is not allowed: {validation_error}",
+            },
+        )
+        return
+
+    start = time.perf_counter()
+    # SPA mode: use Playwright to render JS before extracting links
+    render_js = params.get("render_js", "").lower() in ("1", "true", "yes")
+    if render_js:
+        scanner = SpaScanner(headless=True)
+        scan_results = scanner.scan_page(target_url, render_js=True)
+    else:
+        scan_results = scan_page(target_url)
+    latency = time.perf_counter() - start
+
+    # Saved-project scans additionally maintain trusted findings while
+    # preserving the legacy scan response contract.
+    project_id = params.get("project_id")
+    if project_id:
+        try:
+            _scan_project_targets(target_url, project_id)
+        except (KeyError, ValueError) as exc:
+            _write_json(
+                handler, 400, {"code": "invalid_project_scan", "detail": str(exc)}
+            )
+            return
+
+    # Record scan and trigger webhooks only on changes
+    _record_scan_and_notify(target_url, scan_results)
+
+    _write_scan_response(
+        handler, target_url, scan_results, params.get("format"), latency
+    )
+
+
+def _handle_history(
+    handler: BaseHTTPRequestHandler,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /history."""
+    if not _require_scan_auth(handler, params):
+        return
+    target_url = params.get("url")
+    if not target_url:
+        _write_json(handler, 400, {"detail": "missing url query parameter"})
+        return
+
+    results = get_history(target_url)
+    _write_json(handler, 200, results)
+
+
+def _handle_dashboard(
+    handler: BaseHTTPRequestHandler,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /api/dashboard/* subpaths."""
+    if not _require_scan_auth(handler, params):
+        return
+    store = HistoryStore()
+    subpath = params["_subpath"]
+
+    if subpath == "summary":
+        try:
+            days = max(0, int(params.get("days", "7")))
+        except (ValueError, TypeError):
+            days = 7
+        since = None
+        if days:
+            from datetime import timedelta
+
+            since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        result = store.get_dashboard_summary(since=since)
+        _write_json(handler, 200, result)
+        return
+
+    if subpath == "trends":
+        try:
+            days = int(params.get("days", "7"))
+        except (ValueError, TypeError):
+            days = 7
+        result = store.get_trend_data(days=days)
+        _write_json(handler, 200, result)
+        return
+
+    if subpath == "severity":
+        try:
+            days = int(params.get("days", "7"))
+        except (ValueError, TypeError):
+            days = 7
+        result = store.get_severity_breakdown(days=days)
+        _write_json(handler, 200, result)
+        return
+
+    if subpath == "target-history":
+        target_url = params.get("url")
+        if not target_url:
+            _write_json(
+                handler,
+                400,
+                {
+                    "code": "missing_url",
+                    "detail": "missing url query parameter",
+                },
+            )
+            return
+        try:
+            limit = min(50, max(1, int(params.get("limit", "20"))))
+        except (ValueError, TypeError):
+            limit = 20
+        result = store.get_target_timeline(target_url, limit=limit)
+        _write_json(handler, 200, result)
+        return
+
+    if subpath == "recent-targets":
+        try:
+            limit = min(50, max(1, int(params.get("limit", "10"))))
+        except (ValueError, TypeError):
+            limit = 10
+        _write_json(handler, 200, store.get_recent_targets(limit=limit))
+        return
+
+    if subpath == "domains":
+        try:
+            days = int(params.get("days", "7"))
+        except (ValueError, TypeError):
+            days = 7
+        result = store.get_domain_breakdown(days=days)
+        _write_json(handler, 200, result)
+        return
+
+    _write_json(handler, 404, {"detail": "not found"})
 
 
 def _log_scan(
@@ -1328,11 +1645,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
-        params = {
-            key: values[0]
-            for key, values in parse_qs(parsed.query).items()
-            if values
-        }
+        params = _parse_query(self.path)
 
         if path == "/health":
             health = run_health_checks()
@@ -1341,193 +1654,52 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/jobs" or path.startswith("/api/jobs/"):
-            provided = params.get("token")
-            auth = self.headers.get("Authorization") or ""
-            if provided is None and auth.startswith("Bearer "):
-                provided = auth.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided):
-                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL}); return
-            try:
-                if path == "/api/jobs":
-                    items = _jobs().jobs.list(params.get("project_id"))
-                    _write_json(self, 200, {"items": items, "total": len(items), "limit": 20, "offset": 0})
-                else:
-                    relative = path.removeprefix("/api/jobs/")
-                    if relative.endswith("/sources"):
-                        job_id = relative.removesuffix("/sources")
-                        _write_json(self, 200, {"items": _jobs().jobs.sources(job_id, params.get("state"))})
-                    else:
-                        _write_json(self, 200, {"job": _jobs().jobs.get(relative), "sources": _jobs().jobs.sources(relative)})
-            except KeyError:
-                _write_json(self, 404, {"code": "job_not_found", "detail": "job not found"})
+            _handle_jobs_get(self, path, params)
             return
 
         if path.startswith("/api/projects/") and path.endswith("/scan-policy"):
-            project_id = path.removeprefix("/api/projects/").removesuffix("/scan-policy")
-            try: ProjectStore().get(project_id)
-            except KeyError: _write_json(self,404,{"code":"project_not_found","detail":"project not found"}); return
-            _write_json(self, 200, ScanPolicyStore().get(project_id)); return
+            project_id = path.removeprefix("/api/projects/").removesuffix(
+                "/scan-policy"
+            )
+            try:
+                ProjectStore().get(project_id)
+            except KeyError:
+                _write_json(
+                    self,
+                    404,
+                    {"code": "project_not_found", "detail": "project not found"},
+                )
+                return
+            _write_json(self, 200, ScanPolicyStore().get(project_id))
+            return
 
         if path == "/scan":
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-            target_url = params.get("url")
-            if not target_url:
-                _write_json(self, 400, {"detail": "missing url query parameter"})
-                return
-
-            validation_error = validate_scan_url(target_url)
-            if validation_error is not None:
-                _write_json(self, 400, {
-                    "code": "unsafe_target",
-                    "detail": f"Target URL is not allowed: {validation_error}",
-                })
-                return
-
-            start = time.perf_counter()
-            # SPA mode: use Playwright to render JS before extracting links
-            render_js = params.get("render_js", "").lower() in ("1", "true", "yes")
-            if render_js:
-                scanner = SpaScanner(headless=True)
-                scan_results = scanner.scan_page(target_url, render_js=True)
-            else:
-                scan_results = scan_page(target_url)
-            latency = time.perf_counter() - start
-
-            # Saved-project scans additionally maintain trusted findings while
-            # preserving the legacy scan response contract.
-            project_id = params.get("project_id")
-            if project_id:
-                try:
-                    project = ProjectStore().get(project_id)
-                    if target_url not in project.targets or project.archived:
-                        raise ValueError("target is not active in this project")
-                    source_body = fetch_html(target_url)
-                    if source_body is not None:
-                        service = FindingService(FindingStore())
-                        for occurrence in extract_occurrences(target_url, source_body):
-                            occurrence_error = validate_scan_url(occurrence.target_url)
-                            if occurrence_error is not None:
-                                continue
-                            detail = scan_link_detailed(occurrence.target_url)
-                            service.observe(project_id, occurrence, list(detail.attempts))
-                except (KeyError, ValueError) as exc:
-                    _write_json(self, 400, {"code": "invalid_project_scan", "detail": str(exc)})
-                    return
-
-            # Record scan and trigger webhooks only on changes
-            import threading
-
-            # Record this scan in history
-            record_scan(scan_results, target_url)
-
-            # Get previous scan for comparison
-            history = get_history(target_url, limit=2)
-            if len(history) >= 2:
-                previous_results = history[1].get("results", [])
-                current_results = [
-                    {"url": r.url, "status": r.status} for r in scan_results
-                ]
-                diff = compute_diff(previous_results, current_results)
-                # Only fire webhooks if there are changes
-                if diff.get("added_broken") or diff.get("fixed"):
-                    def _fire_webhooks() -> None:
-                        trigger_webhooks(_webhook_registry, target_url, scan_results)
-
-                    threading.Thread(target=_fire_webhooks, daemon=True).start()
-                    # Notify synchronously after webhook trigger
-                    notify_all(
-                        _notifier_config, scan_results, target_url, _rate_limiter
-                    )
-            elif scan_results:
-                # First scan with broken links - fire webhooks
-                broken = [r for r in scan_results if r.status and r.status >= 400]
-                if broken:
-                    def _fire_webhooks() -> None:
-                        trigger_webhooks(_webhook_registry, target_url, scan_results)
-
-                    threading.Thread(target=_fire_webhooks, daemon=True).start()
-                    # Notify synchronously after webhook trigger
-                    notify_all(
-                        _notifier_config, scan_results, target_url, _rate_limiter
-                    )
-
-            response_format = params.get("format")
-            if response_format is not None and response_format.lower() == "csv":
-                _log_scan(target_url, scan_results, response_format, latency)
-                _write_csv(self, render_csv(scan_results))
-                return
-            if response_format is not None and response_format.lower() == "markdown":
-                _log_scan(target_url, scan_results, response_format, latency)
-                _write_markdown(self, render_markdown(scan_results))
-                return
-            if response_format is not None and response_format.lower() == "jsonl":
-                _log_scan(target_url, scan_results, response_format, latency)
-                _write_jsonl(self, render_jsonl(scan_results))
-                return
-
-            _log_scan(target_url, scan_results, "json", latency)
-            results = [result.__dict__ for result in scan_results]
-            _write_json(self, 200, results)
+            _handle_scan(self, params)
             return
 
         # HISTORY ENDPOINTS
         if path == "/history":
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-            target_url = params.get("url")
-            if not target_url:
-                _write_json(self, 400, {"detail": "missing url query parameter"})
-                return
-
-            # Authenticate and get history
-            results = get_history(target_url)
-            _write_json(self, 200, results)
+            _handle_history(self, params)
             return
 
         if path.startswith("/api/projects/") and path.endswith("/export"):
             project_id = path.removeprefix("/api/projects/").removesuffix("/export")
-            expected_token = get_configured_scan_token()
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if expected_token is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+            if not _require_scan_auth(self, params):
                 return
             try:
                 payload = ProjectStore().export_configuration(project_id)
             except KeyError:
-                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                _write_json(
+                    self,
+                    404,
+                    {"code": "project_not_found", "detail": "project not found"},
+                )
                 return
             _write_json(self, 200, payload)
             return
 
         if path == "/api/projects":
-            expected_token = get_configured_scan_token()
-            provided_token = params.get("token")
-            if provided_token is None and "Authorization" in self.headers:
-                authorization = self.headers.get("Authorization") or ""
-                if authorization.startswith("Bearer "):
-                    provided_token = authorization.split(" ", 1)[1]
-            if expected_token is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+            if not _require_scan_auth(self, params):
                 return
             store = ProjectStore()
             selected = (
@@ -1546,211 +1718,24 @@ class _Handler(BaseHTTPRequestHandler):
 
         # TRUSTED FINDINGS ENDPOINTS
         if path == "/api/findings" or path.startswith("/api/findings/"):
-            expected_token = get_configured_scan_token()
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if expected_token is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL})
-                return
-            store = FindingStore()
-            try:
-                if path == "/api/findings":
-                    project_id = params.get("project_id")
-                    if not project_id:
-                        raise ValueError("project_id is required")
-                    result = store.list(project_id, params.get("state"), params.get("classification"), params.get("q", ""), params.get("limit", 50), params.get("offset", 0))
-                else:
-                    finding_id = path.removeprefix("/api/findings/")
-                    if not finding_id or "/" in finding_id:
-                        raise KeyError(finding_id)
-                    result = store.detail(finding_id)
-            except ValueError as exc:
-                _write_json(self, 400, {"code": "invalid_finding_query", "detail": str(exc)})
-                return
-            except KeyError:
-                _write_json(self, 404, {"code": "finding_not_found", "detail": "finding not found"})
-                return
-            _write_json(self, 200, result)
+            _handle_findings_get(self, path, params)
             return
 
         # DASHBOARD ENDPOINTS
         if path.startswith("/api/dashboard/"):
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
-            store = HistoryStore()
-            subpath = path[len("/api/dashboard/"):]
-
-            if subpath == "summary":
-                try:
-                    days = max(0, int(params.get("days", "7")))
-                except (ValueError, TypeError):
-                    days = 7
-                since = None
-                if days:
-                    from datetime import timedelta
-                    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-                result = store.get_dashboard_summary(since=since)
-                _write_json(self, 200, result)
-                return
-
-            if subpath == "trends":
-                try:
-                    days = int(params.get("days", "7"))
-                except (ValueError, TypeError):
-                    days = 7
-                result = store.get_trend_data(days=days)
-                _write_json(self, 200, result)
-                return
-
-            if subpath == "severity":
-                try:
-                    days = int(params.get("days", "7"))
-                except (ValueError, TypeError):
-                    days = 7
-                result = store.get_severity_breakdown(days=days)
-                _write_json(self, 200, result)
-                return
-
-            if subpath == "target-history":
-                target_url = params.get("url")
-                if not target_url:
-                    _write_json(self, 400, {
-                        "code": "missing_url",
-                        "detail": "missing url query parameter",
-                    })
-                    return
-                try:
-                    limit = min(50, max(1, int(params.get("limit", "20"))))
-                except (ValueError, TypeError):
-                    limit = 20
-                result = store.get_target_timeline(target_url, limit=limit)
-                _write_json(self, 200, result)
-                return
-
-            if subpath == "recent-targets":
-                try:
-                    limit = min(50, max(1, int(params.get("limit", "10"))))
-                except (ValueError, TypeError):
-                    limit = 10
-                _write_json(self, 200, store.get_recent_targets(limit=limit))
-                return
-
-            if subpath == "domains":
-                try:
-                    days = int(params.get("days", "7"))
-                except (ValueError, TypeError):
-                    days = 7
-                result = store.get_domain_breakdown(days=days)
-                _write_json(self, 200, result)
-                return
-
-            _write_json(self, 404, {"detail": "not found"})
+            params["_subpath"] = path[len("/api/dashboard/") :]
+            _handle_dashboard(self, params)
             return
 
         # PORTFOLIO ENDPOINTS
         if path == "/api/portfolio" or path == "/api/portfolio/summary":
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
-            project_ids: list[str] | None = None
-            if params.get("project_ids"):
-                project_ids = [
-                    item.strip()
-                    for item in params["project_ids"].split(",")
-                    if item.strip()
-                ]
-
-            project_store = ProjectStore()
-            history_db = sqlite3.connect(project_store.path, timeout=10)
-            history_db.row_factory = sqlite3.Row
-            try:
-                if path == "/api/portfolio":
-                    rows = get_portfolio_rows(
-                        project_ids=project_ids,
-                        project_store=project_store,
-                        history_db=history_db,
-                        finding_store=FindingStore(),
-                    )
-                    summary = get_portfolio(
-                        project_ids=project_ids,
-                        project_store=project_store,
-                        history_db=history_db,
-                        finding_store=FindingStore(),
-                    )
-                    _write_json(
-                        self,
-                        200,
-                        {
-                            "summary": asdict(summary),
-                            "projects": portfolio_rows_to_dicts(rows),
-                        },
-                    )
-                else:  # /api/portfolio/summary
-                    try:
-                        days = int(params.get("days", "30"))
-                    except (ValueError, TypeError):
-                        days = 30
-                    # Clamp to a safe range so an out-of-range day count can't
-                    # reach timedelta(days=...) and overflow (huge int raises
-                    # OverflowError -> unhandled 500). days <= 0 -> all history
-                    # is preserved by get_portfolio_trends.
-                    days = max(0, min(days, 3650))
-                    summary = get_portfolio(
-                        project_ids=project_ids,
-                        project_store=project_store,
-                        history_db=history_db,
-                        finding_store=FindingStore(),
-                    )
-                    trend = get_portfolio_trends(
-                        project_ids=project_ids,
-                        days=days,
-                        project_store=project_store,
-                        history_db=history_db,
-                    )
-                    _write_json(
-                        self,
-                        200,
-                        {
-                            "summary": asdict(summary),
-                            "trend": [asdict(point) for point in trend],
-                        },
-                    )
-            finally:
-                history_db.close()
+            _handle_portfolio(self, path, params)
             return
 
         # SCHEDULED PROJECTS ENDPOINTS
         if path == "/api/scheduled-projects":
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
+            if not _require_scan_auth(self, params):
+                return
             schedule_store = ScheduleStore()
             history_store = ScanHistoryStore()
             project_store = ProjectStore()
@@ -1765,8 +1750,7 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/dashboard":
-            html = _DASHBOARD_HTML
-            body = html.encode("utf-8")
+            body = _DASHBOARD_HTML.encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
@@ -1782,33 +1766,50 @@ class _Handler(BaseHTTPRequestHandler):
         if not path.startswith("/api/projects/"):
             _write_json(self, 404, {"detail": "not found"})
             return
-        params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-        provided_token = params.get("token")
-        authorization = self.headers.get("Authorization") or ""
-        if provided_token is None and authorization.startswith("Bearer "):
-            provided_token = authorization.split(" ", 1)[1]
-        if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-            _write_json(self, 401, {"detail": _AUTH_DETAIL})
+        params = _parse_query(self.path)
+        if not _require_scan_auth(self, params):
             return
         content_length = int(self.headers.get("Content-Length", 0))
         try:
-            body = json.loads(self.rfile.read(content_length) if content_length else b"")
+            body = json.loads(
+                self.rfile.read(content_length) if content_length else b""
+            )
         except (json.JSONDecodeError, ValueError):
             _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
             return
         targets = body.get("targets")
-        if not isinstance(targets, list) or not all(isinstance(item, str) for item in targets):
-            _write_json(self, 400, {"code": "invalid_targets", "detail": "targets must be a list of strings"})
+        if not isinstance(targets, list) or not all(
+            isinstance(item, str) for item in targets
+        ):
+            _write_json(
+                self,
+                400,
+                {
+                    "code": "invalid_targets",
+                    "detail": "targets must be a list of strings",
+                },
+            )
             return
         for target in targets:
             error = validate_scan_url(target)
             if error is not None:
-                _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
+                _write_json(
+                    self,
+                    400,
+                    {
+                        "code": "unsafe_target",
+                        "detail": f"Target URL is not allowed: {error}",
+                    },
+                )
                 return
         try:
-            project = ProjectStore().update(path.removeprefix("/api/projects/"), str(body.get("name", "")), targets)
+            project = ProjectStore().update(
+                path.removeprefix("/api/projects/"), str(body.get("name", "")), targets
+            )
         except KeyError:
-            _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+            _write_json(
+                self, 404, {"code": "project_not_found", "detail": "project not found"}
+            )
             return
         except ValueError as exc:
             _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
@@ -1819,19 +1820,8 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path.startswith("/api/projects/"):
-            params = {
-                key: values[0]
-                for key, values in parse_qs(parsed.query).items()
-                if values
-            }
-            expected_token = get_configured_scan_token()
-            provided_token = params.get("token")
-            if provided_token is None and "Authorization" in self.headers:
-                authorization = self.headers.get("Authorization") or ""
-                if authorization.startswith("Bearer "):
-                    provided_token = authorization.split(" ", 1)[1]
-            if expected_token is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
+            params = _parse_query(self.path)
+            if not _require_scan_auth(self, params):
                 return
             project_id = path.removeprefix("/api/projects/")
             if not project_id or "/" in project_id:
@@ -1840,7 +1830,11 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 project = ProjectStore().archive(project_id)
             except KeyError:
-                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
+                _write_json(
+                    self,
+                    404,
+                    {"code": "project_not_found", "detail": "project not found"},
+                )
                 return
             _write_json(self, 200, asdict(project))
             return
@@ -1853,477 +1847,579 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/projects/") and path.endswith("/jobs"):
             project_id = path.removeprefix("/api/projects/").removesuffix("/jobs")
             try:
-                job = _jobs().create_project_job(project_id, self.headers.get("Idempotency-Key"))
-            except KeyError: _write_json(self,404,{"code":"project_not_found","detail":"project not found"}); return
-            except ValueError as exc: _write_json(self,400,{"code":"invalid_job","detail":str(exc)}); return
-            _write_json(self,202,{"job":job}); return
+                job = _jobs().create_project_job(
+                    project_id, self.headers.get("Idempotency-Key")
+                )
+            except KeyError:
+                _write_json(
+                    self,
+                    404,
+                    {"code": "project_not_found", "detail": "project not found"},
+                )
+                return
+            except ValueError as exc:
+                _write_json(self, 400, {"code": "invalid_job", "detail": str(exc)})
+                return
+            _write_json(self, 202, {"job": job})
+            return
 
         if path.startswith("/api/jobs/"):
-            length=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(length) if length else b"{}")
-            relative=path.removeprefix("/api/jobs/")
-            try:
-                if relative.endswith("/cancel"):
-                    result=_jobs().jobs.cancel(relative.removesuffix("/cancel"),body.get("version")); _write_json(self,200,{"job":result})
-                elif relative.endswith("/retry-failures"):
-                    jid=relative.removesuffix("/retry-failures")
-                    if body.get("preview",False): _write_json(self,200,_jobs().retry_preview(jid))
-                    else: _write_json(self,202,{"job":_jobs().retry_failures(jid,self.headers.get("Idempotency-Key"))})
-                else: raise KeyError(relative)
-            except JobConflict as exc: _write_json(self,409,{"code":"job_conflict","detail":str(exc)})
-            except KeyError: _write_json(self,404,{"code":"job_not_found","detail":"job not found"})
-            except (ValueError,TypeError) as exc: _write_json(self,400,{"code":"invalid_job_action","detail":str(exc)})
+            _handle_jobs_post(self, path)
             return
 
         if path.startswith("/api/projects/") and path.endswith("/scan-policy"):
-            project_id=path.removeprefix("/api/projects/").removesuffix("/scan-policy")
-            length=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(length) if length else b"{}")
-            try: result=ScanPolicyStore().save(project_id,body.get("version"),body.get("defaults",{}),body.get("host_overrides",[]))
-            except PolicyConflict as exc: _write_json(self,409,{"code":"policy_conflict","detail":str(exc)}); return
-            except (ValueError,TypeError) as exc: _write_json(self,400,{"code":"invalid_policy","detail":str(exc)}); return
-            _write_json(self,200,result); return
-
-        if path.startswith("/api/findings/"):
-            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"code": "unauthorized", "detail": _AUTH_DETAIL})
-                return
-            content_length = int(self.headers.get("Content-Length", 0))
+            project_id = path.removeprefix("/api/projects/").removesuffix(
+                "/scan-policy"
+            )
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length) if length else b"{}")
             try:
-                body = json.loads(self.rfile.read(content_length) if content_length else b"{}")
-                if not isinstance(body, dict) or not isinstance(body.get("version"), int):
-                    raise ValueError("version integer is required")
-                relative = path.removeprefix("/api/findings/")
-                finding_id, action = relative.rsplit("/", 1)
-                store = FindingStore()
-                if action == "acknowledge": result = store.acknowledge(finding_id, body["version"])
-                elif action == "assignment": result = store.assign(finding_id, body["version"], body.get("assignee"))
-                elif action == "ignore": result = store.ignore(finding_id, body["version"], str(body.get("reason", "")), body.get("expiry"))
-                elif action == "reopen": result = store.reopen(finding_id, body["version"])
-                elif action == "verify":
-                    detail = store.detail(finding_id)
-                    project = ProjectStore().get(detail["project_id"])
-                    if project.archived:
-                        raise ValueError("archived projects are read-only")
-                    target_error = validate_scan_url(detail["target_url"])
-                    if target_error is not None:
-                        raise ValueError(f"Target URL is not allowed: {target_error}")
-                    source_bodies = {}
-                    for item in detail["occurrences"]:
-                        if not item["active"]:
-                            continue
-                        source_error = validate_scan_url(item["source_url"])
-                        if source_error is not None:
-                            raise ValueError(
-                                f"Source URL is not allowed: {source_error}"
-                            )
-                        source_bodies[item["source_url"]] = fetch_html(
-                            item["source_url"]
-                        )
-                    target = scan_link_detailed(detail["target_url"])
-                    result = FindingService(store).verify(
-                        finding_id,
-                        body["version"],
-                        list(target.attempts),
-                        source_bodies,
-                    )
-                else: raise KeyError(action)
-            except VersionConflict as exc:
-                _write_json(self, 409, {"code": "finding_version_conflict", "detail": str(exc)})
-                return
-            except KeyError:
-                _write_json(self, 404, {"code": "finding_not_found", "detail": "finding or action not found"})
+                result = ScanPolicyStore().save(
+                    project_id,
+                    body.get("version"),
+                    body.get("defaults", {}),
+                    body.get("host_overrides", []),
+                )
+            except PolicyConflict as exc:
+                _write_json(self, 409, {"code": "policy_conflict", "detail": str(exc)})
                 return
             except (ValueError, TypeError) as exc:
-                _write_json(self, 400, {"code": "invalid_finding_action", "detail": str(exc)})
+                _write_json(self, 400, {"code": "invalid_policy", "detail": str(exc)})
                 return
             _write_json(self, 200, result)
             return
 
+        if path.startswith("/api/findings/"):
+            _handle_findings_post(self, path)
+            return
+
         if path.startswith("/api/projects/") and path.endswith("/pin"):
-            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                return
-            content_length = int(self.headers.get("Content-Length", 0))
-            try:
-                body = json.loads(self.rfile.read(content_length) if content_length else b"")
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
-                return
-            if not isinstance(body, dict) or not isinstance(body.get("pinned"), bool):
-                _write_json(self, 400, {"code": "invalid_pinned", "detail": "pinned must be a boolean"})
-                return
-            project_id = path.removeprefix("/api/projects/").removesuffix("/pin")
-            try:
-                project = ProjectStore().set_pinned(project_id, body["pinned"])
-            except KeyError:
-                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
-                return
-            _write_json(self, 200, asdict(project))
+            _handle_projects_post(self, path, "pin")
             return
 
         if path.startswith("/api/projects/") and path.endswith("/duplicate"):
-            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                return
-            project_id = path.removeprefix("/api/projects/").removesuffix("/duplicate")
-            try:
-                project = ProjectStore().duplicate(project_id)
-            except KeyError:
-                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
-                return
-            _write_json(self, 201, asdict(project))
+            _handle_projects_post(self, path, "duplicate")
             return
 
         if path == "/api/projects/import":
-            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                return
-            content_length = int(self.headers.get("Content-Length", 0))
-            try:
-                body = json.loads(self.rfile.read(content_length) if content_length else b"")
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
-                return
-            if not isinstance(body, dict):
-                _write_json(self, 400, {"code": "invalid_project", "detail": "project configuration must be an object"})
-                return
-            targets = body.get("targets")
-            if isinstance(targets, list):
-                for target in targets:
-                    if not isinstance(target, str):
-                        _write_json(self, 400, {"code": "invalid_target", "detail": "every target must be a string"})
-                        return
-                    error = validate_scan_url(target)
-                    if error is not None:
-                        _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
-                        return
-            try:
-                project = ProjectStore().import_configuration(body)
-            except ValueError as exc:
-                _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
-                return
-            _write_json(self, 201, asdict(project))
+            _handle_projects_post(self, path, "import")
             return
 
         if path.startswith("/api/projects/") and path.endswith("/restore"):
-            params = {key: values[0] for key, values in parse_qs(parsed.query).items() if values}
-            provided_token = params.get("token")
-            authorization = self.headers.get("Authorization") or ""
-            if provided_token is None and authorization.startswith("Bearer "):
-                provided_token = authorization.split(" ", 1)[1]
-            if get_configured_scan_token() is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                return
-            project_id = path.removeprefix("/api/projects/").removesuffix("/restore")
-            try:
-                project = ProjectStore().restore(project_id)
-            except KeyError:
-                _write_json(self, 404, {"code": "project_not_found", "detail": "project not found"})
-                return
-            _write_json(self, 200, asdict(project))
+            _handle_projects_post(self, path, "restore")
             return
 
         if path == "/api/projects":
-            expected_token = get_configured_scan_token()
-            params = {
-                key: values[0]
-                for key, values in parse_qs(parsed.query).items()
-                if values
-            }
-            provided_token = params.get("token")
-            if provided_token is None and "Authorization" in self.headers:
-                authorization = self.headers.get("Authorization") or ""
-                if authorization.startswith("Bearer "):
-                    provided_token = authorization.split(" ", 1)[1]
-            if expected_token is not None and not is_scan_authorized(provided_token):
-                _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                return
-            content_length = int(self.headers.get("Content-Length", 0))
-            raw_body = self.rfile.read(content_length) if content_length else b""
-            try:
-                body = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"code": "invalid_json", "detail": "invalid JSON"})
-                return
-            targets = body.get("targets")
-            if not isinstance(targets, list):
-                _write_json(self, 400, {"code": "invalid_targets", "detail": "targets must be a list"})
-                return
-            for target in targets:
-                if not isinstance(target, str):
-                    _write_json(self, 400, {"code": "invalid_target", "detail": "every target must be a string"})
-                    return
-                error = validate_scan_url(target)
-                if error is not None:
-                    _write_json(self, 400, {"code": "unsafe_target", "detail": f"Target URL is not allowed: {error}"})
-                    return
-            try:
-                project = ProjectStore().create(str(body.get("name", "")), targets)
-            except ValueError as exc:
-                _write_json(self, 400, {"code": "invalid_project", "detail": str(exc)})
-                return
-            _write_json(self, 201, asdict(project))
+            _handle_projects_post(self, path, "create")
             return
 
         if path == "/webhooks":
-            # Auth check (same as /scan)
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                provided_token = None
-                if "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
-            # Read body
-            content_length = int(self.headers.get("Content-Length", 0))
-            raw_body = self.rfile.read(content_length) if content_length else b""
-            try:
-                body = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"detail": "invalid JSON"})
-                return
-
-            url = body.get("url")
-            if not url:
-                _write_json(self, 400, {"detail": "missing url field"})
-                return
-
-            secret = body.get("secret")
-
-            # Check duplicate
-            existing = _webhook_registry.find_by_url(url)
-            if existing is not None:
-                _write_json(self, 409, {"detail": "URL already registered"})
-                return
-
-            # Register
-            try:
-                reg = _webhook_registry.register(url, secret=secret)
-            except ValueError as exc:
-                _write_json(self, 400, {"detail": str(exc)})
-                return
-
-            _write_json(self, 201, {"id": reg.id, "url": reg.url})
+            _handle_webhooks_post(self)
             return
 
         if path == "/scan-batch":
-            # Auth check (same as /scan)
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                params = {
-                    key: values[0]
-                    for key, values in parse_qs(parsed.query).items()
-                    if values
-                }
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
-            # Read body
-            content_length = int(self.headers.get("Content-Length", 0))
-            raw_body = self.rfile.read(content_length) if content_length else b""
-            try:
-                body = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"detail": "invalid JSON"})
-                return
-
-            urls = body.get("urls")
-            if not isinstance(urls, list) or len(urls) == 0:
-                _write_json(self, 400, {"detail": "urls must be a non-empty list"})
-                return
-
-            # Reject duplicates
-            if len(urls) != len(set(urls)):
-                _write_json(self, 400, {"detail": "duplicate URLs in request"})
-                return
-
-            # Reject >50 URLs
-            if len(urls) > 50:
-                _write_json(
-                    self, 400, {"detail": "maximum 50 URLs per batch request"}
-                )
-                return
-
-            # SSRF validation
-            for url in urls:
-                error = validate_scan_url(url)
-                if error is not None:
-                    _write_json(
-                        self,
-                        400,
-                        {"detail": f"SSRF blocked: {url} - {error}"},
-                    )
-                    return
-
-            # Concurrency: cap at 20
-            concurrency = body.get("concurrency", 10)
-            try:
-                concurrency = min(int(concurrency), 20)
-            except (TypeError, ValueError):
-                concurrency = 10
-
-            # Scan
-            start = time.perf_counter()
-            batch_results = scan_batch(urls, timeout=10.0, max_workers=concurrency)
-            latency = time.perf_counter() - start
-
-            # Record scan history and trigger webhooks on changes
-            import threading
-
-            for url in urls:
-                if url in batch_results:
-                    results = batch_results[url]
-                    record_scan(results, url)
-
-                    # Check for changes and trigger webhooks
-                    history = get_history(url, limit=2)
-                    if len(history) >= 2:
-                        previous_results = history[1].get("results", [])
-                        current_results = [
-                            {"url": r.url, "status": r.status}
-                            for r in results
-                        ]
-                        diff = compute_diff(previous_results, current_results)
-                        if diff.get("added_broken") or diff.get("fixed"):
-                            def _fire_webhooks(u=url, r=results) -> None:
-                                trigger_webhooks(_webhook_registry, u, r)
-
-                            threading.Thread(target=_fire_webhooks, daemon=True).start()
-                            # Notify synchronously after webhook trigger
-                            notify_all(_notifier_config, results, url, _rate_limiter)
-                    elif results:
-                        # First scan with broken links - fire webhooks
-                        broken = [r for r in results if r.status and r.status >= 400]
-                        if broken:
-                            def _fire_webhooks(u=url, r=results) -> None:
-                                trigger_webhooks(_webhook_registry, u, r)
-
-                            threading.Thread(target=_fire_webhooks, daemon=True).start()
-                            # Notify synchronously after webhook trigger
-                            notify_all(_notifier_config, results, url, _rate_limiter)
-
-            # Flatten results for non-JSON formats
-            all_results = []
-            for url in urls:
-                all_results.extend(batch_results.get(url, []))
-
-            broken_count = _count_broken(all_results)
-
-            # JSONL logging for batch
-            batch_id = f"{int(start * 1000)}_{len(urls)}"
-            log_entry = {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "batch_id": batch_id,
-                "url_count": len(urls),
-                "total_broken": broken_count,
-                "latency_seconds": round(latency, 6),
-            }
-            log_file = _get_log_file()
-            try:
-                log_file.write(json.dumps(log_entry) + "\n")
-                log_file.flush()
-            finally:
-                if log_file is not sys.stderr:
-                    log_file.close()
-
-            # Format response
-            response_format = body.get("format")
-            if response_format and response_format.lower() == "csv":
-                _write_csv(self, render_csv(all_results))
-                return
-            if response_format and response_format.lower() == "markdown":
-                _write_markdown(self, render_markdown(all_results))
-                return
-            if response_format and response_format.lower() == "jsonl":
-                _write_jsonl(self, render_jsonl(all_results))
-                return
-
-            # Default: JSON with results and summary
-            serializable = {
-                url: [r.__dict__ for r in results]
-                for url, results in batch_results.items()
-            }
-            summary = {
-                "total_urls": len(urls),
-                "broken_count": broken_count,
-                "latency_seconds": round(latency, 6),
-            }
-            _write_json(self, 200, {"results": serializable, "summary": summary})
+            _handle_scan_batch(self)
             return
 
         if path == "/diff":
-            # Auth check (same as /scan-batch)
-            expected_token = get_configured_scan_token()
-            if expected_token is not None:
-                params = {
-                    key: values[0]
-                    for key, values in parse_qs(parsed.query).items()
-                    if values
-                }
-                provided_token = params.get("token")
-                if provided_token is None and "Authorization" in self.headers:
-                    authorization = self.headers.get("Authorization") or ""
-                    if authorization.startswith("Bearer "):
-                        provided_token = authorization.split(" ", 1)[1]
-                if not is_scan_authorized(provided_token):
-                    _write_json(self, 401, {"detail": _AUTH_DETAIL})
-                    return
-
-            # Read body
-            content_length = int(self.headers.get("Content-Length", 0))
-            raw_body = self.rfile.read(content_length) if content_length else b""
-            try:
-                body = json.loads(raw_body)
-            except (json.JSONDecodeError, ValueError):
-                _write_json(self, 400, {"detail": "invalid JSON"})
-                return
-
-            previous = body.get("previous")
-            current = body.get("current")
-            if not previous or not current:
-                _write_json(
-                    self, 400,
-                    {"detail": "missing previous or current in request"},
-                )
-                return
-
-            diff_result = compute_diff(previous, current)
-            _write_json(self, 200, diff_result)
+            _handle_diff(self)
             return
 
         _write_json(self, 404, {"detail": "not found"})
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         return
+
+
+def _handle_jobs_get(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /api/jobs and /api/jobs/*."""
+    if not _require_scan_auth(handler, params):
+        return
+    try:
+        if path == "/api/jobs":
+            items = _jobs().jobs.list(params.get("project_id"))
+            _write_json(
+                handler,
+                200,
+                {"items": items, "total": len(items), "limit": 20, "offset": 0},
+            )
+        else:
+            relative = path.removeprefix("/api/jobs/")
+            if relative.endswith("/sources"):
+                job_id = relative.removesuffix("/sources")
+                _write_json(
+                    handler,
+                    200,
+                    {"items": _jobs().jobs.sources(job_id, params.get("state"))},
+                )
+            else:
+                _write_json(
+                    handler,
+                    200,
+                    {
+                        "job": _jobs().jobs.get(relative),
+                        "sources": _jobs().jobs.sources(relative),
+                    },
+                )
+    except KeyError:
+        _write_json(handler, 404, {"code": "job_not_found", "detail": "job not found"})
+
+
+def _handle_jobs_post(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+) -> None:
+    """Handle POST /api/jobs/* actions (cancel, retry-failures)."""
+    length = int(handler.headers.get("Content-Length", 0))
+    body = json.loads(handler.rfile.read(length) if length else b"{}")
+    relative = path.removeprefix("/api/jobs/")
+    try:
+        if relative.endswith("/cancel"):
+            result = _jobs().jobs.cancel(
+                relative.removesuffix("/cancel"), body.get("version")
+            )
+            _write_json(handler, 200, {"job": result})
+        elif relative.endswith("/retry-failures"):
+            jid = relative.removesuffix("/retry-failures")
+            if body.get("preview", False):
+                _write_json(handler, 200, _jobs().retry_preview(jid))
+            else:
+                _write_json(
+                    handler,
+                    202,
+                    {
+                        "job": _jobs().retry_failures(
+                            jid, handler.headers.get("Idempotency-Key")
+                        )
+                    },
+                )
+        else:
+            raise KeyError(relative)
+    except JobConflict as exc:
+        _write_json(handler, 409, {"code": "job_conflict", "detail": str(exc)})
+    except KeyError:
+        _write_json(handler, 404, {"code": "job_not_found", "detail": "job not found"})
+    except (ValueError, TypeError) as exc:
+        _write_json(handler, 400, {"code": "invalid_job_action", "detail": str(exc)})
+
+
+def _handle_findings_get(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /api/findings and /api/findings/*."""
+    if not _require_scan_auth(handler, params):
+        return
+    store = FindingStore()
+    try:
+        if path == "/api/findings":
+            project_id = params.get("project_id")
+            if not project_id:
+                raise ValueError("project_id is required")
+            result = store.list(
+                project_id,
+                params.get("state"),
+                params.get("classification"),
+                params.get("q", ""),
+                params.get("limit", 50),
+                params.get("offset", 0),
+            )
+        else:
+            finding_id = path.removeprefix("/api/findings/")
+            if not finding_id or "/" in finding_id:
+                raise KeyError(finding_id)
+            result = store.detail(finding_id)
+    except ValueError as exc:
+        _write_json(handler, 400, {"code": "invalid_finding_query", "detail": str(exc)})
+        return
+    except KeyError:
+        _write_json(
+            handler, 404, {"code": "finding_not_found", "detail": "finding not found"}
+        )
+        return
+    _write_json(handler, 200, result)
+
+
+def _handle_findings_post(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+) -> None:
+    """Handle POST /api/findings/* (acknowledge, assign, ignore, reopen, verify)."""
+    params = _parse_query(path)
+    if not _require_scan_auth(handler, params):
+        return
+    body = _read_json_body(handler)
+    if body is None:
+        return
+    try:
+        if not isinstance(body.get("version"), int):
+            raise ValueError("version integer is required")
+        relative = path.removeprefix("/api/findings/")
+        finding_id, action = relative.rsplit("/", 1)
+        store = FindingStore()
+        if action == "acknowledge":
+            result = store.acknowledge(finding_id, body["version"])
+        elif action == "assignment":
+            result = store.assign(finding_id, body["version"], body.get("assignee"))
+        elif action == "ignore":
+            result = store.ignore(
+                finding_id,
+                body["version"],
+                str(body.get("reason", "")),
+                body.get("expiry"),
+            )
+        elif action == "reopen":
+            result = store.reopen(finding_id, body["version"])
+        elif action == "verify":
+            result = _verify_finding(store, finding_id, body["version"])
+        else:
+            raise KeyError(action)
+    except VersionConflict as exc:
+        _write_json(
+            handler, 409, {"code": "finding_version_conflict", "detail": str(exc)}
+        )
+        return
+    except KeyError:
+        _write_json(
+            handler,
+            404,
+            {"code": "finding_not_found", "detail": "finding or action not found"},
+        )
+        return
+    except (ValueError, TypeError) as exc:
+        _write_json(
+            handler, 400, {"code": "invalid_finding_action", "detail": str(exc)}
+        )
+        return
+    _write_json(handler, 200, result)
+
+
+def _verify_finding(
+    store: FindingStore,
+    finding_id: str,
+    version: int,
+) -> Any:
+    """Re-scan a finding's target and sources, then verify it via the service."""
+    detail = store.detail(finding_id)
+    project = ProjectStore().get(detail["project_id"])
+    if project.archived:
+        raise ValueError("archived projects are read-only")
+    target_error = validate_scan_url(detail["target_url"])
+    if target_error is not None:
+        raise ValueError(f"Target URL is not allowed: {target_error}")
+    source_bodies = {}
+    for item in detail["occurrences"]:
+        if not item["active"]:
+            continue
+        source_error = validate_scan_url(item["source_url"])
+        if source_error is not None:
+            raise ValueError(f"Source URL is not allowed: {source_error}")
+        source_bodies[item["source_url"]] = fetch_html(item["source_url"])
+    target = scan_link_detailed(detail["target_url"])
+    return FindingService(store).verify(
+        finding_id,
+        version,
+        list(target.attempts),
+        source_bodies,
+    )
+
+
+def _handle_portfolio(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+    params: dict[str, str],
+) -> None:
+    """Handle GET /api/portfolio and /api/portfolio/summary."""
+    if not _require_scan_auth(handler, params):
+        return
+
+    project_ids: list[str] | None = None
+    if params.get("project_ids"):
+        project_ids = [
+            item.strip() for item in params["project_ids"].split(",") if item.strip()
+        ]
+
+    project_store = ProjectStore()
+    history_db = sqlite3.connect(project_store.path, timeout=10)
+    history_db.row_factory = sqlite3.Row
+    try:
+        if path == "/api/portfolio":
+            rows = get_portfolio_rows(
+                project_ids=project_ids,
+                project_store=project_store,
+                history_db=history_db,
+                finding_store=FindingStore(),
+            )
+            summary = get_portfolio(
+                project_ids=project_ids,
+                project_store=project_store,
+                history_db=history_db,
+                finding_store=FindingStore(),
+            )
+            _write_json(
+                handler,
+                200,
+                {
+                    "summary": asdict(summary),
+                    "projects": portfolio_rows_to_dicts(rows),
+                },
+            )
+        else:  # /api/portfolio/summary
+            try:
+                days = int(params.get("days", "30"))
+            except (ValueError, TypeError):
+                days = 30
+            # Clamp to a safe range so an out-of-range day count can't
+            # reach timedelta(days=...) and overflow (huge int raises
+            # OverflowError -> unhandled 500). days <= 0 -> all history
+            # is preserved by get_portfolio_trends.
+            days = max(0, min(days, 3650))
+            summary = get_portfolio(
+                project_ids=project_ids,
+                project_store=project_store,
+                history_db=history_db,
+                finding_store=FindingStore(),
+            )
+            trend = get_portfolio_trends(
+                project_ids=project_ids,
+                days=days,
+                project_store=project_store,
+                history_db=history_db,
+            )
+            _write_json(
+                handler,
+                200,
+                {
+                    "summary": asdict(summary),
+                    "trend": [asdict(point) for point in trend],
+                },
+            )
+    finally:
+        history_db.close()
+
+
+def _handle_webhooks_post(handler: BaseHTTPRequestHandler) -> None:
+    """Handle POST /webhooks (register a webhook URL)."""
+    if not _require_scan_auth(handler, {}):
+        return
+    body = _read_json_body(handler)
+    if body is None:
+        return
+
+    url = body.get("url")
+    if not url:
+        _write_json(handler, 400, {"detail": "missing url field"})
+        return
+
+    secret = body.get("secret")
+
+    # Check duplicate
+    existing = _webhook_registry.find_by_url(url)
+    if existing is not None:
+        _write_json(handler, 409, {"detail": "URL already registered"})
+        return
+
+    # Register
+    try:
+        reg = _webhook_registry.register(url, secret=secret)
+    except ValueError as exc:
+        _write_json(handler, 400, {"detail": str(exc)})
+        return
+
+    _write_json(handler, 201, {"id": reg.id, "url": reg.url})
+
+
+def _handle_scan_batch(handler: BaseHTTPRequestHandler) -> None:
+    """Handle POST /scan-batch."""
+    params = _parse_query(handler.path)
+    if not _require_scan_auth(handler, params):
+        return
+    body = _read_json_body(handler)
+    if body is None:
+        return
+
+    urls = body.get("urls")
+    if not isinstance(urls, list) or len(urls) == 0:
+        _write_json(handler, 400, {"detail": "urls must be a non-empty list"})
+        return
+
+    # Reject duplicates
+    if len(urls) != len(set(urls)):
+        _write_json(handler, 400, {"detail": "duplicate URLs in request"})
+        return
+
+    # Reject >50 URLs
+    if len(urls) > 50:
+        _write_json(handler, 400, {"detail": "maximum 50 URLs per batch request"})
+        return
+
+    # SSRF validation
+    for url in urls:
+        error = validate_scan_url(url)
+        if error is not None:
+            _write_json(handler, 400, {"detail": f"SSRF blocked: {url} - {error}"})
+            return
+
+    # Concurrency: cap at 20
+    concurrency = body.get("concurrency", 10)
+    try:
+        concurrency = min(int(concurrency), 20)
+    except (TypeError, ValueError):
+        concurrency = 10
+
+    # Scan
+    start = time.perf_counter()
+    batch_results = scan_batch(urls, timeout=10.0, max_workers=concurrency)
+    latency = time.perf_counter() - start
+
+    # Record scan history and trigger webhooks on changes
+    for url in urls:
+        if url in batch_results:
+            _record_scan_and_notify(url, batch_results[url])
+
+    # Flatten results for non-JSON formats
+    all_results = []
+    for url in urls:
+        all_results.extend(batch_results.get(url, []))
+
+    broken_count = _count_broken(all_results)
+
+    # JSONL logging for batch
+    batch_id = f"{int(start * 1000)}_{len(urls)}"
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "batch_id": batch_id,
+        "url_count": len(urls),
+        "total_broken": broken_count,
+        "latency_seconds": round(latency, 6),
+    }
+    log_file = _get_log_file()
+    try:
+        log_file.write(json.dumps(log_entry) + "\n")
+        log_file.flush()
+    finally:
+        if log_file is not sys.stderr:
+            log_file.close()
+
+    # Format response
+    response_format = body.get("format")
+    if response_format and response_format.lower() == "csv":
+        _write_csv(handler, render_csv(all_results))
+        return
+    if response_format and response_format.lower() == "markdown":
+        _write_markdown(handler, render_markdown(all_results))
+        return
+    if response_format and response_format.lower() == "jsonl":
+        _write_jsonl(handler, render_jsonl(all_results))
+        return
+
+    # Default: JSON with results and summary
+    serializable = {
+        url: [r.__dict__ for r in results] for url, results in batch_results.items()
+    }
+    summary = {
+        "total_urls": len(urls),
+        "broken_count": broken_count,
+        "latency_seconds": round(latency, 6),
+    }
+    _write_json(handler, 200, {"results": serializable, "summary": summary})
+
+
+def _handle_diff(handler: BaseHTTPRequestHandler) -> None:
+    """Handle POST /diff."""
+    params = _parse_query(handler.path)
+    if not _require_scan_auth(handler, params):
+        return
+    body = _read_json_body(handler)
+    if body is None:
+        return
+
+    previous = body.get("previous")
+    current = body.get("current")
+    if not previous or not current:
+        _write_json(handler, 400, {"detail": "missing previous or current in request"})
+        return
+
+    diff_result = compute_diff(previous, current)
+    _write_json(handler, 200, diff_result)
+
+
+def _handle_projects_post(
+    handler: BaseHTTPRequestHandler,
+    path: str,
+    action: str,
+) -> None:
+    """Handle POST /api/projects* project-management actions."""
+    params = _parse_query(path)
+    if not _require_scan_auth(handler, params):
+        return
+    try:
+        if action == "pin":
+            body = _read_json_body(handler)
+            if body is None:
+                return
+            if not isinstance(body.get("pinned"), bool):
+                _write_json(
+                    handler,
+                    400,
+                    {"code": "invalid_pinned", "detail": "pinned must be a boolean"},
+                )
+                return
+            project_id = path.removeprefix("/api/projects/").removesuffix("/pin")
+            project = ProjectStore().set_pinned(project_id, body["pinned"])
+            status = 200
+        elif action == "duplicate":
+            project_id = path.removeprefix("/api/projects/").removesuffix("/duplicate")
+            project = ProjectStore().duplicate(project_id)
+            status = 201
+        elif action == "import":
+            body = _read_json_body(handler)
+            if body is None:
+                return
+            if not isinstance(body, dict):
+                _write_json(
+                    handler,
+                    400,
+                    {
+                        "code": "invalid_project",
+                        "detail": "project configuration must be an object",
+                    },
+                )
+                return
+            if not _validate_targets(handler, body.get("targets")):
+                return
+            project = ProjectStore().import_configuration(body)
+            status = 201
+        elif action == "restore":
+            project_id = path.removeprefix("/api/projects/").removesuffix("/restore")
+            project = ProjectStore().restore(project_id)
+            status = 200
+        elif action == "create":
+            body = _read_json_body(handler)
+            if body is None:
+                return
+            if not _validate_targets(handler, body.get("targets")):
+                return
+            project = ProjectStore().create(str(body.get("name", "")), body["targets"])
+            status = 201
+        else:
+            raise KeyError(action)
+    except KeyError:
+        _write_json(
+            handler,
+            404,
+            {"code": "project_not_found", "detail": "project not found"},
+        )
+        return
+    except ValueError as exc:
+        _write_json(handler, 400, {"code": "invalid_project", "detail": str(exc)})
+        return
+    _write_json(handler, status, asdict(project))
 
 
 def _write_json(

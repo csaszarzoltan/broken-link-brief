@@ -56,21 +56,7 @@ def validate_project_config(config: dict[str, Any]) -> ProjectConfig:
         raise ValueError("Project config 'name' must be 100 characters or fewer")
 
     urls = tuple(config.get("urls", []))
-    if not urls:
-        raise ValueError("Project config 'urls' is required with at least one URL")
-    if len(urls) > 50:
-        raise ValueError("Project config 'urls' must have 50 or fewer entries")
-    for url in urls:
-        if not isinstance(url, str):
-            raise ValueError("project config 'urls' must be strings")
-        # Validate URL format (must have scheme and host)
-        if "://" not in url:
-            raise ValueError("project config 'urls' invalid: missing scheme")
-        scheme, rest = url.split("://", 1)
-        if scheme not in ("http", "https"):
-            raise ValueError("project config 'urls' must use http or https scheme")
-        if not rest or not rest.strip("/"):
-            raise ValueError("project config 'urls' invalid: missing host")
+    _validate_urls(urls)
 
     # Validate schedule
     sched_raw = config.get("schedule", {})
@@ -94,28 +80,46 @@ def validate_project_config(config: dict[str, Any]) -> ProjectConfig:
     )
 
     # Validate notifications
-    notif_raw = config.get("notifications", [])
-    for n in notif_raw:
-        if not isinstance(n, dict):
-            raise ValueError("notification config must be a dictionary")
-        n_type = n.get("type")
-        if not n_type:
-            raise ValueError("notification config 'type' is required")
-        if n_type not in ("email", "slack", "webhook"):
-            raise ValueError("notification config 'type' must be one of: email, slack, webhook")
-        if n_type == "webhook" and not n.get("webhook_url"):
-            raise ValueError("webhook notification config requires 'webhook_url'")
-
-    notifications = tuple(
-        NotificationConfig(
-            type=n.get("type", "webhook"),
-            target=n.get("target", ""),
-            webhook_url=n.get("webhook_url"),
-        )
-        for n in notif_raw
-    )
+    notifications = tuple(_build_notification(n) for n in config.get("notifications", []))
 
     return ProjectConfig(name=name, urls=urls, schedule=schedule, notifications=notifications, options=options)
+
+
+def _validate_urls(urls: tuple[Any, ...]) -> None:
+    """Validate the urls field of a project config."""
+    if not urls:
+        raise ValueError("Project config 'urls' is required with at least one URL")
+    if len(urls) > 50:
+        raise ValueError("Project config 'urls' must have 50 or fewer entries")
+    for url in urls:
+        if not isinstance(url, str):
+            raise ValueError("project config 'urls' must be strings")
+        # Validate URL format (must have scheme and host)
+        if "://" not in url:
+            raise ValueError("project config 'urls' invalid: missing scheme")
+        scheme, rest = url.split("://", 1)
+        if scheme not in ("http", "https"):
+            raise ValueError("project config 'urls' must use http or https scheme")
+        if not rest or not rest.strip("/"):
+            raise ValueError("project config 'urls' invalid: missing host")
+
+
+def _build_notification(n: Any) -> NotificationConfig:
+    """Validate a raw notification dict and return a NotificationConfig."""
+    if not isinstance(n, dict):
+        raise ValueError("notification config must be a dictionary")
+    n_type = n.get("type")
+    if not n_type:
+        raise ValueError("notification config 'type' is required")
+    if n_type not in ("email", "slack", "webhook"):
+        raise ValueError("notification config 'type' must be one of: email, slack, webhook")
+    if n_type == "webhook" and not n.get("webhook_url"):
+        raise ValueError("webhook notification config requires 'webhook_url'")
+    return NotificationConfig(
+        type=n.get("type", "webhook"),
+        target=n.get("target", ""),
+        webhook_url=n.get("webhook_url"),
+    )
 
 
 def load_projects_config(path: Path) -> list[ProjectConfig]:
