@@ -3,7 +3,9 @@
 Provides classes to detect regressions in link scanning results by
 comparing current scan results against historical scan data, and
 formatting regression/resolution alerts.
+
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -15,6 +17,7 @@ from brokenlinkbrief.notifications import NotifierConfig, RateLimiter
 # ---------------------------------------------------------------------------
 # RegressionReport — dataclass for regression analysis results
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class RegressionReport:
@@ -45,6 +48,7 @@ class RegressionReport:
 # RegressionDetector — compare scans and detect regressions
 # ---------------------------------------------------------------------------
 
+
 class RegressionDetector:
     """Detects regressions in link scanning results by comparing scans."""
 
@@ -72,45 +76,18 @@ class RegressionDetector:
         ts = datetime.now(timezone.utc).isoformat()
 
         if not history:
-            return RegressionReport(
-                project_id=project_id,
-                scan_id="",
-                previous_scan_id=None,
-                timestamp=ts,
-                new_broken=[],
-                resolved=[],
-                status_changes=[],
-                has_regressions=False,
-            )
+            return self._empty_report(project_id, ts)
 
         previous = self.get_last_successful(history)
         if previous is None:
-            return RegressionReport(
-                project_id=project_id,
-                scan_id="",
-                previous_scan_id=None,
-                timestamp=ts,
-                new_broken=[],
-                resolved=[],
-                status_changes=[],
-                has_regressions=False,
-            )
+            return self._empty_report(project_id, ts)
 
         prev_scan_id = previous.get("scan_id", "")
         prev_raw = previous.get("raw_results", {})
 
         # Build individual link lists from current and previous
-        curr_links: list[dict[str, Any]] = []
-        for _url, links in current_results.items():
-            curr_links.extend(links)
-
-        prev_links: list[dict[str, Any]] = []
-        if isinstance(prev_raw, dict):
-            for _url, links in prev_raw.items():
-                if isinstance(links, list):
-                    prev_links.extend(links)
-        elif isinstance(prev_raw, list):
-            prev_links = prev_raw
+        curr_links = _flatten_links(current_results)
+        prev_links = _flatten_links(prev_raw)
 
         # Build lookup by URL
         curr_by_url: dict[str, dict[str, Any]] = {}
@@ -146,17 +123,21 @@ class RegressionDetector:
                     entry["previous_status"] = prev["status"]
                 new_broken.append(entry)
             elif classification == "resolved":
-                resolved.append({
-                    "url": url,
-                    "previous_status": prev.get("status") if prev else None,
-                    "current_status": curr.get("status") if curr else None,
-                })
+                resolved.append(
+                    {
+                        "url": url,
+                        "previous_status": prev.get("status") if prev else None,
+                        "current_status": curr.get("status") if curr else None,
+                    }
+                )
             elif classification == "status_change":
-                status_changes.append({
-                    "url": url,
-                    "previous_status": prev.get("status") if prev else None,
-                    "current_status": curr.get("status") if curr else None,
-                })
+                status_changes.append(
+                    {
+                        "url": url,
+                        "previous_status": prev.get("status") if prev else None,
+                        "current_status": curr.get("status") if curr else None,
+                    }
+                )
 
         has_regressions = bool(new_broken or status_changes)
 
@@ -171,14 +152,24 @@ class RegressionDetector:
             has_regressions=has_regressions,
         )
 
+    def _empty_report(self, project_id: str, ts: str) -> RegressionReport:
+        """Return a RegressionReport with no changes."""
+        return RegressionReport(
+            project_id=project_id,
+            scan_id="",
+            previous_scan_id=None,
+            timestamp=ts,
+            new_broken=[],
+            resolved=[],
+            status_changes=[],
+            has_regressions=False,
+        )
+
     def get_last_successful(
         self, scan_history: list[dict[str, Any]]
     ) -> dict[str, Any] | None:
         """Return the most recent completed scan from history, or None."""
-        completed = [
-            s for s in scan_history
-            if s.get("status") == "completed"
-        ]
+        completed = [s for s in scan_history if s.get("status") == "completed"]
         if not completed:
             return None
         return max(completed, key=lambda s: s.get("scan_timestamp", ""))
@@ -236,9 +227,22 @@ class RegressionDetector:
         return broken
 
 
+def _flatten_links(raw: Any) -> list[dict[str, Any]]:
+    """Flatten a scan result mapping/list into a single link list."""
+    links: list[dict[str, Any]] = []
+    if isinstance(raw, dict):
+        for _url, item_links in raw.items():
+            if isinstance(item_links, list):
+                links.extend(item_links)
+    elif isinstance(raw, list):
+        links = raw
+    return links
+
+
 # ---------------------------------------------------------------------------
 # RegressionNotifier — format and send regression notifications
 # ---------------------------------------------------------------------------
+
 
 class RegressionNotifier:
     """Sends notifications for regression reports."""

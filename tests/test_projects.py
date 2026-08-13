@@ -1,4 +1,5 @@
 """TDD coverage for durable saved projects and dashboard project workflow."""
+
 from __future__ import annotations
 
 import http.client
@@ -20,9 +21,10 @@ def _server():
 
 def test_project_store_creates_normalized_project(tmp_path) -> None:
     store = ProjectStore(tmp_path / "projects.db")
-    created = store.create(" Main website ", [
-        "https://example.com/", "https://example.org", "https://example.com/"
-    ])
+    created = store.create(
+        " Main website ",
+        ["https://example.com/", "https://example.org", "https://example.com/"],
+    )
     assert created.name == "Main website"
     assert created.targets == ("https://example.com/", "https://example.org/")
     assert created.archived is False
@@ -46,15 +48,21 @@ def test_project_store_archives_without_deleting(tmp_path) -> None:
     assert store.get(created.id).archived is True
 
 
-def test_projects_api_create_and_list(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_projects_api_create_and_list(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     monkeypatch.setenv("BROKENLINKBRIEF_PROJECT_DB", str(tmp_path / "projects.db"))
     monkeypatch.delenv("BROKENLINKBRIEF_SCAN_TOKEN", raising=False)
     server = _server()
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
         body = json.dumps({"name": "Docs", "targets": ["https://example.com"]})
-        conn.request("POST", "/api/projects", body=body,
-                     headers={"Content-Type": "application/json"})
+        conn.request(
+            "POST",
+            "/api/projects",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
         response = conn.getresponse()
         created = json.loads(response.read())
         assert response.status == 201
@@ -69,15 +77,21 @@ def test_projects_api_create_and_list(monkeypatch: pytest.MonkeyPatch, tmp_path)
         server.shutdown()
 
 
-def test_projects_api_validates_targets(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_projects_api_validates_targets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     monkeypatch.setenv("BROKENLINKBRIEF_PROJECT_DB", str(tmp_path / "projects.db"))
     monkeypatch.delenv("BROKENLINKBRIEF_SCAN_TOKEN", raising=False)
     server = _server()
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
         body = json.dumps({"name": "Unsafe", "targets": ["http://127.0.0.1"]})
-        conn.request("POST", "/api/projects", body=body,
-                     headers={"Content-Type": "application/json"})
+        conn.request(
+            "POST",
+            "/api/projects",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
         response = conn.getresponse()
         payload = json.loads(response.read())
         assert response.status == 400
@@ -102,7 +116,10 @@ def test_dashboard_exposes_saved_project_workflow() -> None:
     finally:
         server.shutdown()
 
-def test_projects_api_archives_project(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+
+def test_projects_api_archives_project(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     monkeypatch.setenv("BROKENLINKBRIEF_PROJECT_DB", str(tmp_path / "projects.db"))
     monkeypatch.delenv("BROKENLINKBRIEF_SCAN_TOKEN", raising=False)
     created = ProjectStore().create("Docs", ["https://example.com"])

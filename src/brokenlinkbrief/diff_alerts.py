@@ -3,6 +3,7 @@
 Provides templates and a coordinator for sending diff-specific
 alerts via email/Slack when link state changes are detected.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -133,7 +134,8 @@ def diff_notify_all(
                 body=body,
             )
             outcome["email"] = _make_delivery_outcome(
-                "email", email_sent,
+                "email",
+                email_sent,
                 None if email_sent else "send returned False",
             )
         except Exception as exc:
@@ -149,7 +151,8 @@ def diff_notify_all(
             slack_notifier = SlackNotifier(config.slack_webhook_url)
             slack_sent = slack_notifier.send(message=alert_text)
             outcome["slack"] = _make_delivery_outcome(
-                "slack", slack_sent,
+                "slack",
+                slack_sent,
                 None if slack_sent else "send returned False",
             )
         except Exception as exc:

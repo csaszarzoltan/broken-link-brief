@@ -1,4 +1,5 @@
 """Syntax regression test for the embedded dashboard JavaScript."""
+
 from __future__ import annotations
 
 import re

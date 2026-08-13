@@ -3,6 +3,7 @@
 Stores individual link states in SQLite with upsert support,
 enabling per-URL diff computation between scans.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -116,8 +117,19 @@ class LinkStateStore:
                     "(id, project_id, target_url, link_url, status, reason, "
                     "location, first_seen, last_seen, last_changed, scan_mode) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (rec_id, project_id, target_url, link_url, status, reason,
-                     location, now, now, None, scan_mode),
+                    (
+                        rec_id,
+                        project_id,
+                        target_url,
+                        link_url,
+                        status,
+                        reason,
+                        location,
+                        now,
+                        now,
+                        None,
+                        scan_mode,
+                    ),
                 )
                 record = LinkStateRecord(
                     id=rec_id,
@@ -193,9 +205,7 @@ class LinkStateStore:
             return None
         return self._row_to_record(row)
 
-    def compute_link_diff(
-        self, project_id: str, target_url: str
-    ) -> dict[str, Any]:
+    def compute_link_diff(self, project_id: str, target_url: str) -> dict[str, Any]:
         """Compute diff of link states between consecutive scans.
 
         Returns a dict with ``new_broken`` and ``status_changes`` lists.
@@ -230,10 +240,12 @@ class LinkStateStore:
             elif curr_is_broken and not prev_was_ok:
                 # Both broken or previous was broken — check for status change
                 if latest.status != previous.status:
-                    status_changes.append({
-                        "url": link_url,
-                        "previous_status": previous.status,
-                        "current_status": latest.status,
-                    })
+                    status_changes.append(
+                        {
+                            "url": link_url,
+                            "previous_status": previous.status,
+                            "current_status": latest.status,
+                        }
+                    )
 
         return {"new_broken": new_broken, "status_changes": status_changes}

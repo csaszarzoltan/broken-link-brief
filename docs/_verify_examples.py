@@ -6,12 +6,15 @@ Known gaps found during verification:
   only test empty stores (returning None). This means get_latest_scan() and
   get_scan_history() will crash on non-empty results.
 """
+
 import sys
+
 sys.path.insert(0, "src")
 
 print("=== Example 1: load_projects_config ===")
-from pathlib import Path
-from brokenlinkbrief.scheduler_config import load_projects_config
+from pathlib import Path  # noqa: E402
+
+from brokenlinkbrief.scheduler_config import load_projects_config  # noqa: E402
 
 configs = load_projects_config(Path("examples/schedule-config.yaml"))
 for c in configs:
@@ -19,30 +22,36 @@ for c in configs:
 print("  PASS\n")
 
 print("=== Example 2: validate_project_config ===")
-from brokenlinkbrief.scheduler_config import validate_project_config
+from brokenlinkbrief.scheduler_config import validate_project_config  # noqa: E402
 
-config = validate_project_config({
-    "name": "My project",
-    "urls": ["https://example.com/"],
-    "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
-})
-print(f"  name={config.name}, cron={config.schedule.cron}, tz={config.schedule.timezone}")
+config = validate_project_config(
+    {
+        "name": "My project",
+        "urls": ["https://example.com/"],
+        "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
+    }
+)
+print(
+    f"  name={config.name}, cron={config.schedule.cron}, tz={config.schedule.timezone}"
+)
 print("  PASS\n")
 
 print("=== Example 3: SchedulerService ===")
-from brokenlinkbrief.scheduler import SchedulerService, ProjectSchedule
+from brokenlinkbrief.scheduler import ProjectSchedule, SchedulerService  # noqa: E402
 
 service = SchedulerService(db_path=":memory:")
 service.start()
 
-service.add_project(ProjectSchedule(
-    project_id="docs",
-    name="Documentation",
-    cron_expression="*/30 * * * *",
-    timezone="UTC",
-    urls=["https://docs.example.com/"],
-    enabled=True,
-))
+service.add_project(
+    ProjectSchedule(
+        project_id="docs",
+        name="Documentation",
+        cron_expression="*/30 * * * *",
+        timezone="UTC",
+        urls=["https://docs.example.com/"],
+        enabled=True,
+    )
+)
 
 for project in service.list_projects():
     print(f"  {project.project_id}: {project.cron_expression} ({project.timezone})")
@@ -51,9 +60,10 @@ service.stop()
 print("  PASS\n")
 
 print("=== Example 4: ScheduleStore ===")
-import time
-import tempfile
-from brokenlinkbrief.scheduler import ScheduleStore
+import tempfile  # noqa: E402
+import time  # noqa: E402
+
+from brokenlinkbrief.scheduler import ScheduleStore  # noqa: E402
 
 with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
     db_path = f.name
@@ -65,32 +75,39 @@ print(f"  Claimed {len(due)} schedule(s)")
 print("  PASS\n")
 
 print("=== Example 5: RegressionDetector ===")
-from brokenlinkbrief.regression_detector import RegressionDetector
+from brokenlinkbrief.regression_detector import RegressionDetector  # noqa: E402
 
 detector = RegressionDetector()
 report = detector.detect(
     project_id="my-project",
     current_results={
         "https://example.com/": [
-            {"url": "https://example.com/old-page", "status": 404, "reason": "Not Found"},
+            {
+                "url": "https://example.com/old-page",
+                "status": 404,
+                "reason": "Not Found",
+            },
             {"url": "https://example.com/good-page", "status": 200, "reason": "OK"},
         ]
     },
     scan_history=None,
 )
-print(f"  has_regressions={report.has_regressions}, new_broken={len(report.new_broken)}")
+print(
+    f"  has_regressions={report.has_regressions}, new_broken={len(report.new_broken)}"
+)
 print("  PASS\n")
 
 print("=== Example 6: ScheduledScanExecutor (dry-run, no network) ===")
-from brokenlinkbrief.scheduled_scan import ScheduledScanExecutor
+from brokenlinkbrief.scheduled_scan import ScheduledScanExecutor  # noqa: E402
 
 executor = ScheduledScanExecutor(max_retries=1, retry_delay=0.1)
 print(f"  max_retries={executor.max_retries}, retry_delay={executor.retry_delay}")
 print("  PASS (instantiation verified, no network call)\n")
 
 print("=== Example 7: ScanHistoryStore ===")
-import sqlite3
-from brokenlinkbrief.scan_history import ScanHistoryStore
+import sqlite3  # noqa: E402
+
+from brokenlinkbrief.scan_history import ScanHistoryStore  # noqa: E402
 
 db = sqlite3.connect(":memory:")
 db.row_factory = sqlite3.Row
@@ -121,7 +138,10 @@ print("  get_scan_history: SKIPPED (known bug in scan_history.py:81,92)")
 print("  PASS (with known gaps)\n")
 
 print("=== Example 8: Cron parsing ===")
-from brokenlinkbrief.scheduler import parse_cron_expression, validate_timezone
+from brokenlinkbrief.scheduler import (  # noqa: E402
+    parse_cron_expression,
+    validate_timezone,
+)
 
 result = parse_cron_expression("0 9 * * *")
 print(f"  Parsed: {result}")

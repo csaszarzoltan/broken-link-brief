@@ -17,6 +17,7 @@ and the test asserts the real return value / side-effect.
 │  that context manager and writes the real assertion.                   │
 └─────────────────────────────────────────────────────────────────────────┘
 """
+
 from __future__ import annotations
 
 import inspect
@@ -125,8 +126,13 @@ class TestNotifierConfigInterface:
         from dataclasses import fields
 
         names = {f.name for f in fields(NotifierConfig)}
-        for expected in ("smtp_host", "smtp_port", "smtp_user",
-                         "smtp_password", "smtp_from"):
+        for expected in (
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "smtp_password",
+            "smtp_from",
+        ):
             assert expected in names, f"missing field: {expected}"
 
     def test_has_slack_field(self) -> None:
@@ -139,8 +145,13 @@ class TestNotifierConfigInterface:
         from dataclasses import fields
 
         names = {f.name for f in fields(NotifierConfig)}
-        for expected in ("notify_on", "rate_limit", "rate_interval",
-                         "email_enabled", "slack_enabled"):
+        for expected in (
+            "notify_on",
+            "rate_limit",
+            "rate_interval",
+            "email_enabled",
+            "slack_enabled",
+        ):
             assert expected in names, f"missing field: {expected}"
 
     def test_from_env_classmethod_exists(self) -> None:
@@ -148,8 +159,7 @@ class TestNotifierConfigInterface:
 
     def test_from_env_returns_config_annotation(self) -> None:
         hints = inspect.signature(NotifierConfig.from_env).return_annotation
-        assert hints in (NotifierConfig, NotifierConfig | None,
-                         "NotifierConfig")
+        assert hints in (NotifierConfig, NotifierConfig | None, "NotifierConfig")
 
 
 class TestNotifierConfigBehavior:
@@ -437,6 +447,7 @@ def _start_server_for_integration(
     from http.server import HTTPServer
 
     from brokenlinkbrief.app import _Handler, _webhook_registry
+
     history_dir = os.path.join(os.getcwd(), ".history")
     if os.path.isdir(history_dir):
         shutil.rmtree(history_dir)
@@ -472,8 +483,7 @@ class TestIntegrationScanEndpoint:
         server, port = _start_server_for_integration(monkeypatch)
         try:
             with (
-                patch("brokenlinkbrief.app.scan_page",
-                      return_value=broken_results),
+                patch("brokenlinkbrief.app.scan_page", return_value=broken_results),
                 patch("brokenlinkbrief.app.notify_all", notify_mock),
             ):
                 import http.client
@@ -492,9 +502,7 @@ class TestIntegrationScanEndpoint:
                 conn.close()
 
                 # notify_all should have been called at least once
-                assert notify_mock.called, (
-                    "notify_all was not called after /scan"
-                )
+                assert notify_mock.called, "notify_all was not called after /scan"
         finally:
             server.shutdown()
 
@@ -519,8 +527,7 @@ class TestIntegrationScanEndpoint:
             ]
 
             with (
-                patch("brokenlinkbrief.app.scan_page",
-                      return_value=ok_results),
+                patch("brokenlinkbrief.app.scan_page", return_value=ok_results),
                 patch("brokenlinkbrief.app.notify_all", notify_mock),
             ):
                 import http.client
@@ -585,12 +592,12 @@ class TestIntegrationScanBatchEndpoint:
             ):
                 import http.client
 
-                conn = http.client.HTTPConnection(
-                    "127.0.0.1", port, timeout=5
-                )
-                body = json.dumps({
-                    "urls": ["http://example.com"],
-                }).encode("utf-8")
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                body = json.dumps(
+                    {
+                        "urls": ["http://example.com"],
+                    }
+                ).encode("utf-8")
                 conn.request(
                     "POST",
                     "/scan-batch?token=test-token",
@@ -604,8 +611,6 @@ class TestIntegrationScanBatchEndpoint:
                 resp.read()
                 conn.close()
 
-                assert notify_mock.called, (
-                    "notify_all was not called after /scan-batch"
-                )
+                assert notify_mock.called, "notify_all was not called after /scan-batch"
         finally:
             server.shutdown()

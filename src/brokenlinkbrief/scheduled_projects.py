@@ -1,4 +1,5 @@
 """Scheduled projects dashboard view."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ScheduledProjectView:
     """A single scheduled project as displayed on the dashboard."""
+
     project_id: str
     project_name: str
     cadence: str
@@ -48,50 +50,52 @@ def aggregate_scheduled_projects(
 
     views: list[ScheduledProjectView] = []
     for sched in schedules:
-        pid = (
-            getattr(sched, "project_id", None)
-            or (sched.get("project_id") if isinstance(sched, dict) else "")
-        )
+        pid = _sched_field(sched, "project_id", "")
         if not pid:
             continue
         pname = name_map.get(pid)
         if not pname:
             # Skip schedules without matching project
             continue
-        cadence = getattr(sched, "cadence", None) or (
-            sched.get("cadence", "") if isinstance(sched, dict) else ""
-        )
-        tz = getattr(sched, "timezone", None) or (
-            sched.get("timezone", "UTC") if isinstance(sched, dict) else "UTC"
-        )
-        state = getattr(sched, "state", None) or (
-            sched.get("state", "ACTIVE") if isinstance(sched, dict) else "ACTIVE"
-        )
-        next_due = getattr(sched, "next_due_at", None) or (
-            sched.get("next_due_at", 0.0) if isinstance(sched, dict) else 0.0
-        )
-
-        last_ts = None
-        last_broken = None
-        last_status = "never_run"
-        has_scan = hasattr(scan_history_store, "get_latest_scan")
-        if scan_history_store is not None and has_scan:
-            latest = scan_history_store.get_latest_scan(pid)
-            if latest is not None:
-                last_ts = latest.scan_timestamp
-                last_broken = latest.broken_count
-                last_status = latest.status
-
-        views.append(ScheduledProjectView(
-            project_id=pid,
-            project_name=pname,
-            cadence=cadence,
-            timezone=tz,
-            state=state,
-            next_due_at=next_due,
-            last_scan_timestamp=last_ts,
-            last_scan_broken_count=last_broken,
-            last_scan_status=last_status,
-        ))
+        views.append(_build_view(pid, pname, sched, scan_history_store))
 
     return sorted(views, key=lambda v: v.next_due_at)
+
+
+def _sched_field(sched: Any, field: str, default: Any) -> Any:
+    """Read a field from a Schedule dataclass or dict."""
+    return getattr(sched, field, None) or (
+        sched.get(field, default) if isinstance(sched, dict) else default
+    )
+
+
+def _build_view(
+    pid: str,
+    pname: str,
+    sched: Any,
+    scan_history_store: ScanHistoryStore | None,
+) -> ScheduledProjectView:
+    """Build a ScheduledProjectView for one schedule entry."""
+    last_ts = None
+    last_broken = None
+    last_status = "never_run"
+    if scan_history_store is not None and hasattr(
+        scan_history_store, "get_latest_scan"
+    ):
+        latest = scan_history_store.get_latest_scan(pid)
+        if latest is not None:
+            last_ts = latest.scan_timestamp
+            last_broken = latest.broken_count
+            last_status = latest.status
+
+    return ScheduledProjectView(
+        project_id=pid,
+        project_name=pname,
+        cadence=_sched_field(sched, "cadence", ""),
+        timezone=_sched_field(sched, "timezone", "UTC"),
+        state=_sched_field(sched, "state", "ACTIVE"),
+        next_due_at=_sched_field(sched, "next_due_at", 0.0),
+        last_scan_timestamp=last_ts,
+        last_scan_broken_count=last_broken,
+        last_scan_status=last_status,
+    )

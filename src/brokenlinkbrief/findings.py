@@ -1,4 +1,5 @@
 """Durable project findings, evidence, occurrences, verification, and audit."""
+
 from __future__ import annotations
 
 import hashlib
@@ -36,7 +37,7 @@ def _sanitize_error(value: str | None) -> str | None:
     return _SECRET_RE.sub(r"\1=[redacted]", value)[:200]
 
 
-class VersionConflict(ValueError):
+class VersionConflictError(ValueError):
     """Raised when a finding mutation uses a stale version."""
 
 
@@ -185,7 +186,11 @@ class FindingStore:
     def _expire_ignore(self, db: sqlite3.Connection, finding_id: str) -> None:
         row = self._row(db, finding_id)
         expiry = row["ignore_expiry"]
-        if row["state"] != "IGNORED" or not expiry or date.fromisoformat(expiry) >= date.today():
+        if (
+            row["state"] != "IGNORED"
+            or not expiry
+            or date.fromisoformat(expiry) >= date.today()
+        ):
             return
         db.execute(
             """UPDATE project_findings SET state='OPEN',ignore_reason=NULL,
@@ -194,7 +199,9 @@ class FindingStore:
         )
         self._audit(db, finding_id, "IGNORE_EXPIRED", "IGNORED", "OPEN")
 
-    def upsert(self, project_id: str, occurrence: Any, assessment: Any, attempts: list[Any]) -> dict[str, Any] | None:
+    def upsert(
+        self, project_id: str, occurrence: Any, assessment: Any, attempts: list[Any]
+    ) -> dict[str, Any] | None:
         now = _now()
         with self._db() as db:
             project = db.execute(
@@ -255,9 +262,7 @@ class FindingStore:
                     )
             anchor = occurrence.anchor_text[:500]
             context = occurrence.context[:500]
-            fingerprint = hashlib.sha256(
-                f"{anchor}\0{context}".encode("utf-8")
-            ).hexdigest()
+            fingerprint = hashlib.sha256(f"{anchor}\0{context}".encode()).hexdigest()
             db.execute(
                 """INSERT INTO finding_occurrences VALUES(?,?,?,?,?,?,1,?,?)
                    ON CONFLICT(finding_id,source_url,fingerprint)
@@ -410,7 +415,7 @@ class FindingStore:
             if project is None or project["archived"]:
                 raise ValueError("archived or missing project is read-only")
             if row["version"] != version:
-                raise VersionConflict("FINDING_VERSION_CONFLICT")
+                raise VersionConflictError("FINDING_VERSION_CONFLICT")
             values = {"state": state, "version": version + 1, **fields}
             assignments = ",".join(f"{key}=?" for key in values)
             db.execute(
@@ -421,9 +426,7 @@ class FindingStore:
         return self.get(finding_id)
 
     def acknowledge(self, finding_id: str, version: int) -> dict[str, Any]:
-        return self._transition(
-            finding_id, version, "ACKNOWLEDGED", "ACKNOWLEDGED"
-        )
+        return self._transition(finding_id, version, "ACKNOWLEDGED", "ACKNOWLEDGED")
 
     def assign(
         self, finding_id: str, version: int, assignee: str | None
@@ -468,9 +471,7 @@ class FindingStore:
             resolved_at=None,
         )
 
-    def reconcile_source(
-        self, finding_id: str, source_url: str, present: bool
-    ) -> None:
+    def reconcile_source(self, finding_id: str, source_url: str, present: bool) -> None:
         """Mark source occurrences inactive only after a successful source fetch."""
         with self._db() as db:
             db.execute(
@@ -496,7 +497,7 @@ class FindingStore:
             if project is None or project["archived"]:
                 raise ValueError("archived or missing project is read-only")
             if row["version"] != version:
-                raise VersionConflict("FINDING_VERSION_CONFLICT")
+                raise VersionConflictError("FINDING_VERSION_CONFLICT")
             resolved = outcome in {"RECOVERED", "REMOVED_FROM_SOURCE"}
             state = "RESOLVED" if resolved else row["state"]
             db.execute(

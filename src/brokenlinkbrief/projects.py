@@ -1,4 +1,5 @@
 """Durable saved projects for repeat scanning workflows."""
+
 from __future__ import annotations
 
 import os
@@ -126,8 +127,13 @@ class ProjectStore:
                 ).fetchall()
             )
         return Project(
-            row["id"], row["name"], targets, bool(row["archived"]),
-            row["created_at"], row["updated_at"], bool(row["pinned"]),
+            row["id"],
+            row["name"],
+            targets,
+            bool(row["archived"]),
+            row["created_at"],
+            row["updated_at"],
+            bool(row["pinned"]),
         )
 
     def _list_by_archived(self, archived: bool) -> list[Project]:
@@ -210,7 +216,9 @@ class ProjectStore:
             scanned_targets += 1
             record = records[0]
             timestamp = record.get("timestamp")
-            if timestamp and (last_scan_timestamp is None or timestamp > last_scan_timestamp):
+            if timestamp and (
+                last_scan_timestamp is None or timestamp > last_scan_timestamp
+            ):
                 last_scan_timestamp = timestamp
             results = record.get("results", [])
             total_links += len(results)
@@ -239,7 +247,12 @@ class ProjectStore:
             raise ValueError("maximum 50 targets per project")
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as db:
-            if db.execute("SELECT 1 FROM projects WHERE id=?", (project_id,)).fetchone() is None:
+            if (
+                db.execute(
+                    "SELECT 1 FROM projects WHERE id=?", (project_id,)
+                ).fetchone()
+                is None
+            ):
                 raise KeyError(project_id)
             db.execute(
                 "UPDATE projects SET name=?, updated_at=? WHERE id=?",

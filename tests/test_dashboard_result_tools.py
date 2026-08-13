@@ -1,4 +1,5 @@
 """TDD acceptance coverage for dashboard result review tools."""
+
 from __future__ import annotations
 
 import http.client

@@ -1,4 +1,5 @@
 """BrokenLinkBrief core helpers: dataclass/result model, scan, markdown, csv."""
+
 from __future__ import annotations
 
 import html
@@ -23,7 +24,7 @@ class LinkResult:
 
 
 _LINK_RE = re.compile(r'href\s*=\s*"([^"]+)"', re.IGNORECASE)
-_TIMEOUT_RE = re.compile(r'timed out', re.IGNORECASE)
+_TIMEOUT_RE = re.compile(r"timed out", re.IGNORECASE)
 _SCAN_TOKEN_ENV = "BROKENLINKBRIEF_SCAN_TOKEN"
 
 
@@ -231,17 +232,19 @@ def validate_scan_url(url: str) -> str | None:
     from ipaddress import ip_address, ip_network
 
     # Exact hostname blocklist
-    _blocked_hosts = frozenset({
-        "localhost",
-        "local.host",
-        "127.0.0.1",
-        "0.0.0.0",
-        "::1",
-        "metadata.google.internal",
-        "metadata.internal",
-        "169.254.169.254",
-        "metadata",
-    })
+    _blocked_hosts = frozenset(
+        {
+            "localhost",
+            "local.host",
+            "127.0.0.1",
+            "0.0.0.0",
+            "::1",
+            "metadata.google.internal",
+            "metadata.internal",
+            "169.254.169.254",
+            "metadata",
+        }
+    )
 
     # Hostname substring blocklist (catches *.local, *.internal, etc.)
     _blocked_substrings = ("local", "internal", "localhost")
@@ -255,12 +258,12 @@ def validate_scan_url(url: str) -> str | None:
         ip_network("192.168.0.0/16"),
         ip_network("169.254.0.0/16"),
         ip_network("fe80::/10"),
-        ip_network("100.64.0.0/10"),   # CGNAT
-        ip_network("224.0.0.0/4"),     # multicast
-        ip_network("240.0.0.0/4"),     # reserved
+        ip_network("100.64.0.0/10"),  # CGNAT
+        ip_network("224.0.0.0/4"),  # multicast
+        ip_network("240.0.0.0/4"),  # reserved
         ip_network("0.0.0.0/8"),
-        ip_network("::/128"),           # unspecified v6
-        ip_network("fc00::/7"),         # ULA
+        ip_network("::/128"),  # unspecified v6
+        ip_network("fc00::/7"),  # ULA
     )
 
     def _is_blocked_host(host: str) -> bool:
@@ -345,9 +348,7 @@ def scan_batch(
         try:
             return url, scan_page(url, timeout=timeout)
         except Exception as exc:
-            result = LinkResult(
-                url=url, status=None, reason=str(exc), location=None
-            )
+            result = LinkResult(url=url, status=None, reason=str(exc), location=None)
             return url, [result]
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -400,7 +401,13 @@ class HistoryStore:
     def __init__(self, history_dir: str | Path | None = None) -> None:
         self._lock = Lock()
         configured = os.environ.get(_HISTORY_DIR_ENV)
-        raw = Path(history_dir) if history_dir else Path(configured) if configured else _HISTORY_DIR
+        raw = (
+            Path(history_dir)
+            if history_dir
+            else Path(configured)
+            if configured
+            else _HISTORY_DIR
+        )
         if isinstance(raw, str):
             raw = Path(raw)
         self._dir: Path = raw
@@ -448,7 +455,10 @@ class HistoryStore:
                 f.write(json.dumps(record) + "\n")
 
     def get_history(
-        self, url: str, limit: int = 100, since: str | None = None,
+        self,
+        url: str,
+        limit: int = 100,
+        since: str | None = None,
     ) -> list[dict]:
         """Return historical records for url, ordered by timestamp.
 
@@ -527,15 +537,17 @@ class HistoryStore:
                 diff["added_broken"], key=lambda item: item.get("url", "")
             )
             fixed = sorted(diff["fixed"], key=lambda item: item.get("url", ""))
-            timeline.append({
-                "timestamp": record.get("timestamp"),
-                "total_links": len(current),
-                "broken_count": broken_count,
-                "newly_broken_count": len(newly_broken),
-                "fixed_count": len(fixed),
-                "newly_broken": newly_broken,
-                "fixed": fixed,
-            })
+            timeline.append(
+                {
+                    "timestamp": record.get("timestamp"),
+                    "total_links": len(current),
+                    "broken_count": broken_count,
+                    "newly_broken_count": len(newly_broken),
+                    "fixed_count": len(fixed),
+                    "newly_broken": newly_broken,
+                    "fixed": fixed,
+                }
+            )
             previous = current
         return list(reversed(timeline))
 
@@ -609,9 +621,8 @@ class HistoryStore:
             total_links += len(results)
             for r in results:
                 status = r.get("status")
-                is_broken = (
-                    (status is not None and status >= 400)
-                    or (status is None and r.get("reason") is not None)
+                is_broken = (status is not None and status >= 400) or (
+                    status is None and r.get("reason") is not None
                 )
                 if is_broken:
                     total_broken += 1
@@ -658,9 +669,8 @@ class HistoryStore:
             daily[date_key]["total"] += len(results)
             for r in results:
                 status = r.get("status")
-                is_broken = (
-                    (status is not None and status >= 400)
-                    or (status is None and r.get("reason") is not None)
+                is_broken = (status is not None and status >= 400) or (
+                    status is None and r.get("reason") is not None
                 )
                 if is_broken:
                     daily[date_key]["broken"] += 1
@@ -734,9 +744,8 @@ class HistoryStore:
         for record in records:
             for r in record.get("results", []):
                 status = r.get("status")
-                is_broken = (
-                    (status is not None and status >= 400)
-                    or (status is None and r.get("reason") is not None)
+                is_broken = (status is not None and status >= 400) or (
+                    status is None and r.get("reason") is not None
                 )
                 if is_broken:
                     try:
@@ -833,16 +842,20 @@ def compute_diff(previous: list[dict], current: list[dict]) -> dict:
         "still_broken": still_broken,
     }
 
+
 @dataclass(frozen=True)
 class ScanObservation:
     """Backward-compatible result paired with bounded confidence evidence."""
+
     result: LinkResult
     attempts: tuple[object, ...]
     assessment: object
 
 
 def _probe_request(url: str, method: str, timeout: float):
-    return _request_head(url, timeout) if method == "HEAD" else _request_get(url, timeout)
+    return (
+        _request_head(url, timeout) if method == "HEAD" else _request_get(url, timeout)
+    )
 
 
 def scan_link_detailed(
@@ -855,7 +868,9 @@ def scan_link_detailed(
 ) -> ScanObservation:
     """Check one link with bounded retry evidence without changing LinkResult."""
     import time as _time
+
     from brokenlinkbrief.confidence import ProbeAttempt, classify_evidence
+
     requester = requester or _probe_request
     sleeper = sleeper or _time.sleep
     if policy is not None:
@@ -880,5 +895,10 @@ def scan_link_detailed(
             break
         sleeper(min(backoff_seconds * (2**index), 30.0))
     final = attempts[-1]
-    result = LinkResult(url, final.status, final.error or (str(final.status) if final.status is not None else None), location)
+    result = LinkResult(
+        url,
+        final.status,
+        final.error or (str(final.status) if final.status is not None else None),
+        location,
+    )
     return ScanObservation(result, tuple(attempts), classify_evidence(attempts))

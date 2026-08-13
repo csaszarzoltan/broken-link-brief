@@ -5,11 +5,10 @@ Three-layer test pattern:
   Layer 2: Signature/interface (PASS immediately)
   Layer 3: Behavioral (FAIL with NotImplementedError — RED phase)
 """
+
 from __future__ import annotations
 
 import inspect
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -113,13 +112,25 @@ def sample_diff_report() -> DiffReport:
         target_url="http://example.com",
         timestamp="2026-01-01T00:00:00",
         new_broken=[
-            {"url": "http://example.com/new-broken", "status": 500, "reason": "server error"},
+            {
+                "url": "http://example.com/new-broken",
+                "status": 500,
+                "reason": "server error",
+            },
         ],
         resolved=[
-            {"url": "http://example.com/fixed", "previous_status": 404, "current_status": 200},
+            {
+                "url": "http://example.com/fixed",
+                "previous_status": 404,
+                "current_status": 200,
+            },
         ],
         status_changes=[
-            {"url": "http://example.com/changed", "previous_status": 200, "current_status": 403},
+            {
+                "url": "http://example.com/changed",
+                "previous_status": 200,
+                "current_status": 403,
+            },
         ],
         new_links=[],
         removed_links=[],
@@ -249,8 +260,10 @@ class TestDiffNotifyAllBehavior:
         # Should NOT send when has_changes is False
         for channel_outcome in result.values():
             if isinstance(channel_outcome, dict):
-                assert channel_outcome.get("sent") is not True or \
-                    channel_outcome.get("error") is not None
+                assert (
+                    channel_outcome.get("sent") is not True
+                    or channel_outcome.get("error") is not None
+                )
 
     def test_rate_limiting_via_token_bucket(
         self, enabled_config: NotifierConfig, sample_diff_report: DiffReport
@@ -259,15 +272,14 @@ class TestDiffNotifyAllBehavior:
         limiter = RateLimiter(capacity=1, fill_rate=0.0)  # no refill
         try:
             # First call should succeed (token available)
-            result1 = diff_notify_all(enabled_config, sample_diff_report, limiter)
+            diff_notify_all(enabled_config, sample_diff_report, limiter)
             # Second call should be rate-limited (no tokens left)
             result2 = diff_notify_all(enabled_config, sample_diff_report, limiter)
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         # At least one channel should be rate-limited on second call
         has_rate_limited = any(
-            "rate-limit" in str(v) for v in result2.values()
-            if isinstance(v, dict)
+            "rate-limit" in str(v) for v in result2.values() if isinstance(v, dict)
         )
         assert has_rate_limited
 
@@ -287,12 +299,14 @@ class TestDiffNotifyAllBehavior:
     ) -> None:
         """New broken links in diff report are identifiable as regressions."""
         try:
-            result = diff_notify_all(enabled_config, sample_diff_report)
+            diff_notify_all(enabled_config, sample_diff_report)
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         # The report should carry new_broken which the regression_detector can use
         assert len(sample_diff_report.new_broken) > 0
-        assert sample_diff_report.new_broken[0]["url"] == "http://example.com/new-broken"
+        assert (
+            sample_diff_report.new_broken[0]["url"] == "http://example.com/new-broken"
+        )
 
     def test_diff_notify_all_returns_outcome_dict(
         self, enabled_config: NotifierConfig, sample_diff_report: DiffReport

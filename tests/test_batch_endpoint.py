@@ -1,4 +1,5 @@
 """Pre-development interface/behavior tests for POST /scan-batch endpoint."""
+
 from __future__ import annotations
 
 import http.client
@@ -70,9 +71,7 @@ def test_interface_batch_endpoint_returns_json() -> None:
     """POST /scan-batch should exist and respond with JSON."""
     server, port = _start_server()
     try:
-        resp = _post_json(
-            port, "/scan-batch", {"urls": ["https://example.com"]}
-        )
+        resp = _post_json(port, "/scan-batch", {"urls": ["https://example.com"]})
         assert resp is not None, "Expected a response from /scan-batch"
         body = resp.read().decode()
         assert resp.status in (200, 400, 401, 404, 405), (
@@ -90,9 +89,7 @@ def test_interface_batch_endpoint_request_schema() -> None:
     """POST /scan-batch should accept a JSON body with a 'urls' list."""
     server, port = _start_server()
     try:
-        resp = _post_json(
-            port, "/scan-batch", {"urls": ["https://example.com"]}
-        )
+        resp = _post_json(port, "/scan-batch", {"urls": ["https://example.com"]})
         assert resp is not None
         assert resp.status in (200, 400, 401, 404, 405)
     finally:
@@ -170,9 +167,7 @@ def test_behavior_batch_endpoint_auth_required() -> None:
     """POST /scan-batch without token when token set -> 401."""
     server, port = _start_server(scan_token="secret")
     try:
-        resp = _post_json(
-            port, "/scan-batch", {"urls": ["https://example.com"]}
-        )
+        resp = _post_json(port, "/scan-batch", {"urls": ["https://example.com"]})
         assert resp is not None
         assert resp.status == 401
     finally:
@@ -184,9 +179,7 @@ def test_behavior_batch_endpoint_ssrf_blocked() -> None:
     """POST /scan-batch with private IP -> 400."""
     server, port = _start_server()
     try:
-        resp = _post_json(
-            port, "/scan-batch", {"urls": ["http://127.0.0.1"]}
-        )
+        resp = _post_json(port, "/scan-batch", {"urls": ["http://127.0.0.1"]})
         assert resp is not None
         assert resp.status == 400
         data = json.loads(resp.read().decode())
@@ -219,9 +212,7 @@ def test_behavior_batch_endpoint_json_response_shape() -> None:
     """POST /scan-batch response has 'results' and 'summary' keys."""
     server, port = _start_server()
     try:
-        resp = _post_json(
-            port, "/scan-batch", {"urls": ["https://example.com"]}
-        )
+        resp = _post_json(port, "/scan-batch", {"urls": ["https://example.com"]})
         assert resp is not None
         assert resp.status == 200
         data = json.loads(resp.read().decode())

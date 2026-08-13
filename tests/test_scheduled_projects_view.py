@@ -17,6 +17,7 @@ New stubs created for this feature:
 - src/brokenlinkbrief/scheduled_projects.py — ScheduledProjectView data model
   and aggregator logic.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -135,9 +136,7 @@ class TestScanHistoryStoreGetLatestScan:
 
         sig = inspect.signature(ScanHistoryStore.get_latest_scan)
         params = list(sig.parameters.keys())
-        assert "project_id" in params, (
-            f"Expected 'project_id' param, got {params}"
-        )
+        assert "project_id" in params, f"Expected 'project_id' param, got {params}"
 
 
 # ---------------------------------------------------------------------------
@@ -224,12 +223,20 @@ class TestAggregateScheduledProjects:
             pytest.skip("not implemented yet — RED phase")
         schedules = [
             Schedule(
-                "s1", "p1", "0 9 * * *", "UTC",
-                "ACTIVE", time.time() + 100,
+                "s1",
+                "p1",
+                "0 9 * * *",
+                "UTC",
+                "ACTIVE",
+                time.time() + 100,
             ),
             Schedule(
-                "s2", "p2", "0 */6 * * *",
-                "Europe/Zurich", "ACTIVE", time.time() + 200,
+                "s2",
+                "p2",
+                "0 */6 * * *",
+                "Europe/Zurich",
+                "ACTIVE",
+                time.time() + 200,
             ),
         ]
         result = aggregate_scheduled_projects(
@@ -254,8 +261,12 @@ class TestAggregateScheduledProjects:
         except NotImplementedError:
             pytest.skip("not implemented yet — RED phase")
         schedule = Schedule(
-            "s1", "p1", "0 9 * * *", "UTC",
-            "ACTIVE", time.time(),
+            "s1",
+            "p1",
+            "0 9 * * *",
+            "UTC",
+            "ACTIVE",
+            time.time(),
         )
         result = aggregate_scheduled_projects(
             schedules=[schedule],
@@ -274,8 +285,12 @@ class TestAggregateScheduledProjects:
         except NotImplementedError:
             pytest.skip("not implemented yet — RED phase")
         schedule = Schedule(
-            "s1", "p1", "0 9 * * *",
-            "Europe/Zurich", "ACTIVE", time.time(),
+            "s1",
+            "p1",
+            "0 9 * * *",
+            "Europe/Zurich",
+            "ACTIVE",
+            time.time(),
         )
         result = aggregate_scheduled_projects(
             schedules=[schedule],
@@ -295,7 +310,12 @@ class TestAggregateScheduledProjects:
             pytest.skip("not implemented yet — RED phase")
         ts = time.time() + 7200
         schedule = Schedule(
-            "s1", "p1", "0 9 * * *", "UTC", "ACTIVE", ts,
+            "s1",
+            "p1",
+            "0 9 * * *",
+            "UTC",
+            "ACTIVE",
+            ts,
         )
         result = aggregate_scheduled_projects(
             schedules=[schedule],
@@ -314,8 +334,12 @@ class TestAggregateScheduledProjects:
         except NotImplementedError:
             pytest.skip("not implemented yet — RED phase")
         schedule = Schedule(
-            "s1", "p_missing", "0 9 * * *",
-            "UTC", "ACTIVE", time.time(),
+            "s1",
+            "p_missing",
+            "0 9 * * *",
+            "UTC",
+            "ACTIVE",
+            time.time(),
         )
         result = aggregate_scheduled_projects(
             schedules=[schedule],
@@ -335,8 +359,12 @@ class TestAggregateScheduledProjects:
             pytest.skip("not implemented yet — RED phase")
         for state in ("ACTIVE", "RUNNING", "PAUSED"):
             schedule = Schedule(
-                "s1", "p1", "0 9 * * *",
-                "UTC", state, time.time(),
+                "s1",
+                "p1",
+                "0 9 * * *",
+                "UTC",
+                state,
+                time.time(),
             )
             result = aggregate_scheduled_projects(
                 schedules=[schedule],
@@ -371,31 +399,35 @@ class TestScheduledProjectsEndpoint:
         server.shutdown()
 
     def test_scheduled_projects_endpoint_exists(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """GET /api/scheduled-projects returns 200 or 404 (not 500)."""
         pytest.skip("RED phase: /api/scheduled-projects endpoint not wired yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/api/scheduled-projects?token=test-token")
         resp = conn.getresponse()
-        assert resp.status in (200, 404), (
-            f"Unexpected status: {resp.status}"
-        )
+        assert resp.status in (200, 404), f"Unexpected status: {resp.status}"
         conn.close()
 
     def test_scheduled_projects_returns_json(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """GET /api/scheduled-projects returns JSON content type."""
         pytest.skip("RED phase: /api/scheduled-projects endpoint not wired yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/api/scheduled-projects?token=test-token")
         resp = conn.getresponse()
@@ -405,33 +437,37 @@ class TestScheduledProjectsEndpoint:
         conn.close()
 
     def test_scheduled_projects_body_is_list(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """GET /api/scheduled-projects body decodes as a JSON list."""
         pytest.skip("RED phase: /api/scheduled-projects endpoint not wired yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/api/scheduled-projects?token=test-token")
         resp = conn.getresponse()
         if resp.status == 200:
             body = json.loads(resp.read())
-            assert isinstance(body, list), (
-                f"Expected list, got {type(body)}"
-            )
+            assert isinstance(body, list), f"Expected list, got {type(body)}"
         conn.close()
 
     def test_scheduled_project_view_shape(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Each item in /api/scheduled-projects has expected keys."""
         pytest.skip("RED phase: /api/scheduled-projects endpoint not wired yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/api/scheduled-projects?token=test-token")
         resp = conn.getresponse()
@@ -453,19 +489,20 @@ class TestScheduledProjectsEndpoint:
         conn.close()
 
     def test_unauthenticated_returns_401(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """GET /api/scheduled-projects without token returns 401."""
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/api/scheduled-projects")
         resp = conn.getresponse()
-        assert resp.status == 401, (
-            f"Expected 401, got {resp.status}"
-        )
+        assert resp.status == 401, f"Expected 401, got {resp.status}"
         conn.close()
 
 
@@ -492,7 +529,9 @@ class TestManualTriggerEndpoint:
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request(
             "POST",
@@ -501,9 +540,7 @@ class TestManualTriggerEndpoint:
             headers={"Content-Type": "application/json"},
         )
         resp = conn.getresponse()
-        assert resp.status in (200, 404, 405), (
-            f"Unexpected status: {resp.status}"
-        )
+        assert resp.status in (200, 404, 405), f"Unexpected status: {resp.status}"
         conn.close()
 
     def test_trigger_returns_json(self, _start_server: int) -> None:
@@ -511,7 +548,9 @@ class TestManualTriggerEndpoint:
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request(
             "POST",
@@ -526,13 +565,16 @@ class TestManualTriggerEndpoint:
         conn.close()
 
     def test_trigger_body_has_status_key(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Trigger response contains a 'status' key."""
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request(
             "POST",
@@ -543,42 +585,43 @@ class TestManualTriggerEndpoint:
         resp = conn.getresponse()
         if resp.status == 200:
             body = json.loads(resp.read())
-            assert "status" in body, (
-                f"Missing 'status' in response: {body}"
-            )
+            assert "status" in body, f"Missing 'status' in response: {body}"
         conn.close()
 
     def test_trigger_nonexistent_project_returns_404(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Trigger on a nonexistent project_id returns 404."""
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request(
             "POST",
-            "/api/scheduled-projects/nonexistent/trigger"
-            "?token=test-token",
+            "/api/scheduled-projects/nonexistent/trigger?token=test-token",
             body=json.dumps({}),
             headers={"Content-Type": "application/json"},
         )
         resp = conn.getresponse()
-        assert resp.status == 404, (
-            f"Expected 404, got {resp.status}"
-        )
+        assert resp.status == 404, f"Expected 404, got {resp.status}"
         conn.close()
 
     def test_trigger_unauthenticated_returns_401(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Trigger without token returns 401."""
         pytest.skip("RED phase: POST trigger endpoint not wired yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request(
             "POST",
@@ -587,9 +630,7 @@ class TestManualTriggerEndpoint:
             headers={"Content-Type": "application/json"},
         )
         resp = conn.getresponse()
-        assert resp.status == 401, (
-            f"Expected 401, got {resp.status}"
-        )
+        assert resp.status == 401, f"Expected 401, got {resp.status}"
         conn.close()
 
 
@@ -617,12 +658,11 @@ class TestTrendDataPerProject:
         store = HistoryStore()
         try:
             result = store.get_project_trend(
-                "nonexistent-project-id", days=7,
+                "nonexistent-project-id",
+                days=7,
             )
         except NotImplementedError:
-            pytest.skip(
-                "get_project_trend not yet implemented — RED phase"
-            )
+            pytest.skip("get_project_trend not yet implemented — RED phase")
         assert isinstance(result, list)
 
     def test_trend_item_shape(self) -> None:
@@ -657,9 +697,7 @@ class TestTrendDataPerProject:
 
         date_re = re.compile(r"^\d{4}-\d{2}-\d{2}$")
         for item in result:
-            assert date_re.match(item["date"]), (
-                f"Bad date format: {item['date']}"
-            )
+            assert date_re.match(item["date"]), f"Bad date format: {item['date']}"
 
 
 # ---------------------------------------------------------------------------
@@ -685,14 +723,17 @@ class TestDashboardHtmlScheduledProjects:
         server.shutdown()
 
     def test_dashboard_includes_scheduled_projects_section(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Dashboard HTML contains a 'scheduled projects' section."""
         pytest.skip("RED phase: scheduled projects HTML section not added yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/dashboard")
         resp = conn.getresponse()
@@ -705,32 +746,36 @@ class TestDashboardHtmlScheduledProjects:
         conn.close()
 
     def test_dashboard_includes_trigger_button(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Dashboard HTML contains a manual trigger button."""
         pytest.skip("RED phase: trigger button not added to dashboard yet")
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/dashboard")
         resp = conn.getresponse()
         if resp.status == 200:
             html = resp.read().decode("utf-8")
-            assert "trigger" in html.lower(), (
-                "Dashboard HTML missing trigger button"
-            )
+            assert "trigger" in html.lower(), "Dashboard HTML missing trigger button"
         conn.close()
 
     def test_dashboard_includes_chartjs(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Dashboard HTML loads Chart.js for the trend chart."""
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/dashboard")
         resp = conn.getresponse()
@@ -743,13 +788,16 @@ class TestDashboardHtmlScheduledProjects:
         conn.close()
 
     def test_dashboard_trend_chart_canvas(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """Dashboard HTML has a canvas element for the trend chart."""
         import http.client
 
         conn = http.client.HTTPConnection(
-            "127.0.0.1", _start_server, timeout=5,
+            "127.0.0.1",
+            _start_server,
+            timeout=5,
         )
         conn.request("GET", "/dashboard")
         resp = conn.getresponse()

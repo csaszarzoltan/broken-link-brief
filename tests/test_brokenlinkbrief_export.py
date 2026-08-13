@@ -1,4 +1,5 @@
 """Pre-development interface/behavior tests for BrokenLinkBrief export module."""
+
 from __future__ import annotations
 
 import inspect

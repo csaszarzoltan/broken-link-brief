@@ -6,6 +6,7 @@ cross-project health overview served by ``GET /api/portfolio`` and
 records produced by :class:`brokenlinkbrief.scan_history.ScanHistoryStore`;
 projects with no scan history yet are counted as unscanned (``never_run``).
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -185,7 +186,6 @@ def _finding_counts_for(
     return _per_project_finding_counts(history_db, project_ids)
 
 
-
 def _latest_scans(
     db: sqlite3.Connection,
     project_ids: list[str],
@@ -237,9 +237,7 @@ def get_portfolio_rows(
 
     rows: list[PortfolioProjectRow] = []
     for project in projects:
-        open_findings, resolved_findings = per_project_counts.get(
-            project.id, (0, 0)
-        )
+        open_findings, resolved_findings = per_project_counts.get(project.id, (0, 0))
         record = latest.get(project.id)
         if record is not None:
             rows.append(
@@ -332,9 +330,7 @@ def get_portfolio(
             last_scan_timestamp = timestamp
 
     health_score = (
-        round(100.0 * (1 - broken_count / total_links), 1)
-        if total_links > 0
-        else 100.0
+        round(100.0 * (1 - broken_count / total_links), 1) if total_links > 0 else 100.0
     )
     return PortfolioSummary(
         projects=len(projects),

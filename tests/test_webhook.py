@@ -4,6 +4,7 @@ Interface tests verify that the required functions/classes exist with correct
 signatures and return types.  Behavioral tests exercise the actual logic
 (HMAC signing, retry, delivery, registration, SSRF rejection).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -108,9 +109,7 @@ class TestHMACSigning:
         """X-Webhook-Signature must equal HMAC-SHA256(secret, payload)."""
         payload = b'{"scanned_url":"http://example.com"}'
         secret = "my-test-secret"
-        expected = hmac.new(
-            secret.encode("utf-8"), payload, hashlib.sha256
-        ).hexdigest()
+        expected = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
         assert sign_payload(payload, secret) == expected
 
     def test_hmac_varies_with_secret(self) -> None:
@@ -285,15 +284,17 @@ def _make_test_server() -> tuple[HTTPServer, int, list[dict[str, Any]]]:
         def do_POST(self) -> None:
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length) if content_length else b""
-            received.append({
-                "path": self.path,
-                "headers": dict(self.headers),
-                "body": body,
-            })
+            received.append(
+                {
+                    "path": self.path,
+                    "headers": dict(self.headers),
+                    "body": body,
+                }
+            )
             self.send_response(200)
             self.end_headers()
 
-        def log_message(self, format: str, *args: Any) -> None:
+        def log_message(self, message: str, *args: Any) -> None:
             return  # silence logging
 
     server = HTTPServer(("127.0.0.1", 0), CapturingHandler)
@@ -374,9 +375,7 @@ class TestRetryLogic:
                 raise ConnectionError("connection refused")
             return 200
 
-        with patch(
-            "brokenlinkbrief.webhook.deliver_webhook", side_effect=mock_deliver
-        ):
+        with patch("brokenlinkbrief.webhook.deliver_webhook", side_effect=mock_deliver):
             status = deliver_with_retry(
                 "http://example.com/hook",
                 b"{}",
@@ -387,10 +386,13 @@ class TestRetryLogic:
             assert call_count == 2
 
     def test_gives_up_after_max_attempts(self) -> None:
-        with patch(
-            "brokenlinkbrief.webhook.deliver_webhook",
-            side_effect=ConnectionError("always fails"),
-        ), pytest.raises(RuntimeError, match="failed after 3 attempts"):
+        with (
+            patch(
+                "brokenlinkbrief.webhook.deliver_webhook",
+                side_effect=ConnectionError("always fails"),
+            ),
+            pytest.raises(RuntimeError, match="failed after 3 attempts"),
+        ):
             deliver_with_retry(
                 "http://example.com/hook",
                 b"{}",
@@ -505,9 +507,7 @@ class TestTriggerWebhooks:
             secret = "test-secret-123"
             registry = WebhookRegistry()
             url = f"http://127.0.0.1:{port}/hook"
-            registry.register(
-                url, secret=secret, skip_validation=True
-            )
+            registry.register(url, secret=secret, skip_validation=True)
             results = [
                 LinkResult(url="http://broken.com", status=404, reason="Not Found"),
             ]

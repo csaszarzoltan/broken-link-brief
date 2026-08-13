@@ -3,6 +3,7 @@
 Tests the DNS resolution validation, hostname substring blocking,
 and comprehensive reserved network range checks added to validate_scan_url.
 """
+
 from __future__ import annotations
 
 from unittest.mock import patch
@@ -66,6 +67,7 @@ def test_dns_resolves_public_allowed() -> None:
 
 def test_dns_resolution_failure_allowed() -> None:
     """Unresolvable hostnames should not block (host may be temporarily dead)."""
+
     def _fail_getaddrinfo(host, port=None):
         raise OSError("Name or service not known")
 

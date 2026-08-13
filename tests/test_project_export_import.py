@@ -1,4 +1,5 @@
 """TDD coverage for portable project configuration export and import."""
+
 from __future__ import annotations
 
 import http.client
@@ -31,11 +32,13 @@ def test_project_store_exports_versioned_configuration(tmp_path) -> None:
 
 def test_project_store_imports_with_new_identity(tmp_path) -> None:
     store = ProjectStore(tmp_path / "projects.db")
-    imported = store.import_configuration({
-        "schema_version": 1,
-        "name": "Imported",
-        "targets": ["https://example.com", "https://example.com"],
-    })
+    imported = store.import_configuration(
+        {
+            "schema_version": 1,
+            "name": "Imported",
+            "targets": ["https://example.com", "https://example.com"],
+        }
+    )
     assert imported.name == "Imported"
     assert imported.targets == ("https://example.com/",)
     assert imported.id
@@ -44,11 +47,13 @@ def test_project_store_imports_with_new_identity(tmp_path) -> None:
 def test_project_store_rejects_unsupported_import_schema(tmp_path) -> None:
     store = ProjectStore(tmp_path / "projects.db")
     with pytest.raises(ValueError, match="schema"):
-        store.import_configuration({
-            "schema_version": 99,
-            "name": "Future",
-            "targets": ["https://example.com"],
-        })
+        store.import_configuration(
+            {
+                "schema_version": 99,
+                "name": "Future",
+                "targets": ["https://example.com"],
+            }
+        )
 
 
 def test_project_export_api_returns_configuration(
@@ -78,13 +83,19 @@ def test_project_import_api_validates_targets(
     server = _server()
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
-        body = json.dumps({
-            "schema_version": 1,
-            "name": "Unsafe",
-            "targets": ["http://127.0.0.1"],
-        })
-        conn.request("POST", "/api/projects/import", body=body,
-                     headers={"Content-Type": "application/json"})
+        body = json.dumps(
+            {
+                "schema_version": 1,
+                "name": "Unsafe",
+                "targets": ["http://127.0.0.1"],
+            }
+        )
+        conn.request(
+            "POST",
+            "/api/projects/import",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
         response = conn.getresponse()
         payload = json.loads(response.read())
         assert response.status == 400

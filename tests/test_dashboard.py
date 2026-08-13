@@ -12,6 +12,7 @@ State at authoring time (pre-tester):
 - Therefore ALL behavioral tests are expected to FAIL against the stubs
   and PASS only after the developer implements the dashboard feature.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -371,13 +372,8 @@ def test_dashboard_html_has_dark_theme_css() -> None:
         assert resp.status == 200
 
         # Check for dark theme indicators
-        has_dark_bg = (
-            "background" in html
-            and (
-                "#1a" in html
-                or "#222" in html
-                or "#2d" in html
-            )
+        has_dark_bg = "background" in html and (
+            "#1a" in html or "#222" in html or "#2d" in html
         )
         has_dark_css = "dark" in html.lower() and "color" in html
         assert has_dark_bg or has_dark_css, (

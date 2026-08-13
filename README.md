@@ -348,6 +348,7 @@ Verify the signature in Python:
 import hmac
 import hashlib
 
+
 def verify_webhook_signature(payload_bytes: bytes, secret: str, signature: str) -> bool:
     """Timing-safe verification of webhook signature."""
     expected = hmac.new(

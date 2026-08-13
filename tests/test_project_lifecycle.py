@@ -1,4 +1,5 @@
 """TDD coverage for editing, restoring, and viewing archived projects."""
+
 from __future__ import annotations
 
 import http.client
@@ -21,14 +22,20 @@ def _server():
 def test_project_store_updates_name_and_targets(tmp_path) -> None:
     store = ProjectStore(tmp_path / "projects.db")
     project = store.create("Old", ["https://example.com"])
-    updated = store.update(project.id, " Main site ", [
-        "https://example.org/docs", "https://example.org/docs",
-        "https://example.net",
-    ])
+    updated = store.update(
+        project.id,
+        " Main site ",
+        [
+            "https://example.org/docs",
+            "https://example.org/docs",
+            "https://example.net",
+        ],
+    )
     assert updated.id == project.id
     assert updated.name == "Main site"
     assert updated.targets == (
-        "https://example.org/docs", "https://example.net/",
+        "https://example.org/docs",
+        "https://example.net/",
     )
     assert updated.updated_at >= project.updated_at
 
@@ -51,7 +58,9 @@ def test_project_store_lists_archived_separately(tmp_path) -> None:
     assert [item.id for item in store.list_archived()] == [archived.id]
 
 
-def test_projects_api_updates_project(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_projects_api_updates_project(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     monkeypatch.setenv("BROKENLINKBRIEF_PROJECT_DB", str(tmp_path / "projects.db"))
     monkeypatch.delenv("BROKENLINKBRIEF_SCAN_TOKEN", raising=False)
     project = ProjectStore().create("Old", ["https://example.com"])
@@ -59,8 +68,12 @@ def test_projects_api_updates_project(monkeypatch: pytest.MonkeyPatch, tmp_path)
     try:
         conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
         body = json.dumps({"name": "Updated", "targets": ["https://example.org"]})
-        conn.request("PUT", f"/api/projects/{project.id}", body=body,
-                     headers={"Content-Type": "application/json"})
+        conn.request(
+            "PUT",
+            f"/api/projects/{project.id}",
+            body=body,
+            headers={"Content-Type": "application/json"},
+        )
         response = conn.getresponse()
         payload = json.loads(response.read())
         assert response.status == 200

@@ -4,6 +4,7 @@ Provides cron-based scheduling with SQLite persistence, including
 ProjectSchedule/ScheduleState dataclasses, SchedulerService lifecycle,
 and the existing Schedule/ScheduleStore for lightweight schedule leasing.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -83,6 +84,7 @@ def validate_timezone(tz_name: str) -> bool:
 # Scheduler DB schema
 # ---------------------------------------------------------------------------
 
+
 def create_scheduler_db_schema(conn: sqlite3.Connection) -> None:
     """Create the schedules table if it doesn't exist."""
     conn.execute("""CREATE TABLE IF NOT EXISTS schedules (
@@ -99,6 +101,7 @@ def create_scheduler_db_schema(conn: sqlite3.Connection) -> None:
 # ---------------------------------------------------------------------------
 # ProjectSchedule — validated project configuration for the scheduler
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ProjectSchedule:
@@ -120,6 +123,7 @@ class ProjectSchedule:
 # ScheduleState — persisted state for a schedule row
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ScheduleState:
     """Persisted state of a project schedule in SQLite."""
@@ -136,6 +140,7 @@ class ScheduleState:
 # ---------------------------------------------------------------------------
 # SchedulerService — lifecycle manager for project schedules
 # ---------------------------------------------------------------------------
+
 
 class SchedulerService:
     """Manage project schedules with SQLite persistence and lifecycle."""
@@ -174,13 +179,16 @@ class SchedulerService:
                 uid = uuid.uuid4().hex
                 self._mem_name = f"file:sched_{uid}?mode=memory&cache=shared"
                 self._conn = sqlite3.connect(
-                    self._mem_name, uri=True, timeout=10,
+                    self._mem_name,
+                    uri=True,
+                    timeout=10,
                     check_same_thread=False,
                 )
             else:
                 Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
                 self._conn = sqlite3.connect(
-                    self._db_path, timeout=10,
+                    self._db_path,
+                    timeout=10,
                     check_same_thread=False,
                 )
 
@@ -220,8 +228,12 @@ class SchedulerService:
                 """INSERT OR REPLACE INTO schedules
                 (project_id, cron_expression, timezone, enabled, next_due)
                 VALUES (?, ?, ?, ?, NULL)""",
-                (config.project_id, config.cron_expression, config.timezone,
-                 1 if config.enabled else 0),
+                (
+                    config.project_id,
+                    config.cron_expression,
+                    config.timezone,
+                    1 if config.enabled else 0,
+                ),
             )
             self._conn.commit()
 
@@ -296,6 +308,7 @@ class SchedulerService:
 # Legacy Schedule / ScheduleStore (used by scheduled_projects.py)
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Schedule:
     """A single schedule entry (legacy type used by scheduled_projects)."""
@@ -325,18 +338,29 @@ class ScheduleStore:
         return db
 
     def create(
-        self, project_id: str, cadence: str, tz: str, *, next_due_at: float,
+        self,
+        project_id: str,
+        cadence: str,
+        tz: str,
+        *,
+        next_due_at: float,
     ) -> Schedule:
         if not project_id.strip() or not cadence.strip():
             raise ValueError("project_id and cadence are required")
         ZoneInfo(tz)
         item = Schedule(
-            uuid.uuid4().hex, project_id, cadence, tz, "ACTIVE", next_due_at,
+            uuid.uuid4().hex,
+            project_id,
+            cadence,
+            tz,
+            "ACTIVE",
+            next_due_at,
         )
         with self._connect() as db:
             vals = tuple(item.__dict__.values())
             db.execute(
-                "INSERT INTO schedules VALUES (?,?,?,?,?,?,NULL,NULL)", vals,
+                "INSERT INTO schedules VALUES (?,?,?,?,?,?,NULL,NULL)",
+                vals,
             )
         return item
 
@@ -348,14 +372,22 @@ class ScheduleStore:
             ).fetchall()
         return [
             Schedule(
-                r["id"], r["project_id"], r["cadence"],
-                r["timezone"], r["state"], r["next_due"],
+                r["id"],
+                r["project_id"],
+                r["cadence"],
+                r["timezone"],
+                r["state"],
+                r["next_due"],
             )
             for r in rows
         ]
 
     def claim_due(
-        self, *, now: float, worker_id: str, limit: int = 10,
+        self,
+        *,
+        now: float,
+        worker_id: str,
+        limit: int = 10,
     ) -> list[Schedule]:
         if not worker_id or limit < 1:
             raise ValueError("worker_id and positive limit required")
@@ -376,8 +408,12 @@ class ScheduleStore:
                 )
         return [
             Schedule(
-                r["id"], r["project_id"], r["cadence"],
-                r["timezone"], "RUNNING", r["next_due"],
+                r["id"],
+                r["project_id"],
+                r["cadence"],
+                r["timezone"],
+                "RUNNING",
+                r["next_due"],
             )
             for r in rows
         ]

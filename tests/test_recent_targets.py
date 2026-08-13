@@ -1,4 +1,5 @@
 """TDD acceptance coverage for repeat-user recent target workflows."""
+
 from __future__ import annotations
 
 import http.client
@@ -21,8 +22,12 @@ def _server():
 def test_history_store_returns_recent_unique_targets(tmp_path) -> None:
     store = HistoryStore(tmp_path)
     store.record_scan([LinkResult("https://one.test/a", 200, "OK")], "https://one.test")
-    store.record_scan([LinkResult("https://two.test/a", 404, "Not Found")], "https://two.test")
-    store.record_scan([LinkResult("https://one.test/b", 404, "Not Found")], "https://one.test")
+    store.record_scan(
+        [LinkResult("https://two.test/a", 404, "Not Found")], "https://two.test"
+    )
+    store.record_scan(
+        [LinkResult("https://one.test/b", 404, "Not Found")], "https://one.test"
+    )
 
     recent = store.get_recent_targets(limit=10)
 
@@ -36,7 +41,14 @@ def test_recent_targets_endpoint_returns_json(monkeypatch: pytest.MonkeyPatch) -
     class Store:
         def get_recent_targets(self, limit=10):
             assert limit == 5
-            return [{"url": "https://example.com", "last_scan_timestamp": "2026-08-01T10:00:00+00:00", "total_links": 2, "broken_count": 1}]
+            return [
+                {
+                    "url": "https://example.com",
+                    "last_scan_timestamp": "2026-08-01T10:00:00+00:00",
+                    "total_links": 2,
+                    "broken_count": 1,
+                }
+            ]
 
     monkeypatch.setattr("brokenlinkbrief.app.HistoryStore", Store)
     server = _server()

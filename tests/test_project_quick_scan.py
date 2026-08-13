@@ -1,4 +1,5 @@
 """TDD coverage for one-action project scanning and project health summaries."""
+
 from __future__ import annotations
 
 import http.client

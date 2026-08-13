@@ -1,4 +1,5 @@
 """TDD acceptance coverage for the browser batch-scan workflow."""
+
 from __future__ import annotations
 
 import http.client
@@ -41,7 +42,7 @@ def test_dashboard_exposes_single_and_batch_scan_modes() -> None:
 def test_batch_form_has_bulk_url_and_concurrency_inputs() -> None:
     html = _dashboard_html()
     assert 'id="batchUrls"' in html
-    assert '<textarea' in html
+    assert "<textarea" in html
     assert 'id="batchConcurrency"' in html
     assert 'min="1"' in html
     assert 'max="20"' in html

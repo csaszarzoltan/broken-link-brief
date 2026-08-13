@@ -7,6 +7,7 @@ raw-HTML link results without duplicates.
 Requires the optional ``playwright`` dependency:
     pip install brokenlinkbrief[playwright]
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -65,9 +66,7 @@ class SpaScanner:
 
         return self._scan_with_playwright(url)
 
-    def render_and_extract_links(
-        self, rendered_html: str, base_url: str
-    ) -> list[str]:
+    def render_and_extract_links(self, rendered_html: str, base_url: str) -> list[str]:
         """Extract links from already-rendered HTML content.
 
         Args:
@@ -106,9 +105,7 @@ class SpaScanner:
                 charset = "utf-8"
                 if "charset=" in content_type:
                     charset = (
-                        content_type.split("charset=", 1)[1]
-                        .split(";", 1)[0]
-                        .strip()
+                        content_type.split("charset=", 1)[1].split(";", 1)[0].strip()
                         or charset
                     )
                 data = resp.read()

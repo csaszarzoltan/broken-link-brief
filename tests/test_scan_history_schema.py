@@ -5,13 +5,12 @@ Three-layer pre-dev test pattern:
   Layer 2: Schema DDL validation (PASS — raw SQL, no implementation needed)
   Layer 3: ScanHistoryStore behavioral tests (FAIL with NotImplementedError)
 """
+
 from __future__ import annotations
 
 import inspect
-import json
 import sqlite3
 from dataclasses import fields
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -36,6 +35,7 @@ class TestImports:
 
     def test_scan_record_is_dataclass(self) -> None:
         from dataclasses import is_dataclass
+
         assert is_dataclass(ScanRecord)
 
 
@@ -45,17 +45,28 @@ class TestScanRecordStructure:
     def test_scan_record_fields(self) -> None:
         field_names = {f.name for f in fields(ScanRecord)}
         expected = {
-            "id", "project_id", "scan_timestamp", "total_urls",
-            "total_links", "broken_count", "new_broken_count",
-            "status", "raw_results_json", "last_known_good_hash",
+            "id",
+            "project_id",
+            "scan_timestamp",
+            "total_urls",
+            "total_links",
+            "broken_count",
+            "new_broken_count",
+            "status",
+            "raw_results_json",
+            "last_known_good_hash",
             "regression_flags",
         }
         assert expected == field_names
 
     def test_scan_record_defaults(self) -> None:
         rec = ScanRecord(
-            id="s1", project_id="p1", scan_timestamp="2026-01-01T00:00:00",
-            total_urls=10, total_links=50, broken_count=5,
+            id="s1",
+            project_id="p1",
+            scan_timestamp="2026-01-01T00:00:00",
+            total_urls=10,
+            total_links=50,
+            broken_count=5,
         )
         assert rec.new_broken_count == 0
         assert rec.status == "completed"
@@ -231,7 +242,9 @@ class TestScanHistorySchema:
 
         db.execute("DELETE FROM projects WHERE id=?", ("proj1",))
 
-        count = db.execute("SELECT COUNT(*) FROM scan_history WHERE project_id=?", ("proj1",)).fetchone()[0]
+        count = db.execute(
+            "SELECT COUNT(*) FROM scan_history WHERE project_id=?", ("proj1",)
+        ).fetchone()[0]
         assert count == 0
         db.close()
 
@@ -320,7 +333,9 @@ class TestScanHistoryStoreSignature:
 class TestScanHistoryStore:
     """Test ScanHistoryStore class methods."""
 
-    def _make_store(self, tmp_path: Path) -> tuple[ScanHistoryStore, sqlite3.Connection]:
+    def _make_store(
+        self, tmp_path: Path
+    ) -> tuple[ScanHistoryStore, sqlite3.Connection]:
         """Create a store with a real in-memory DB."""
         db = sqlite3.connect(str(tmp_path / "test.db"))
         db.row_factory = sqlite3.Row
@@ -423,7 +438,9 @@ class TestScanHistoryRegression:
     Fix: `for k in row.keys()`.
     """
 
-    def _make_store(self, tmp_path: Path) -> tuple[ScanHistoryStore, sqlite3.Connection]:
+    def _make_store(
+        self, tmp_path: Path
+    ) -> tuple[ScanHistoryStore, sqlite3.Connection]:
         db = sqlite3.connect(str(tmp_path / "test.db"))
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")

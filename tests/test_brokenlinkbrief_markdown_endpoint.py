@@ -15,6 +15,7 @@ State at authoring time (pre-tester, t_9223169c):
   the route. The JSON-fallback test is a regression guard that must pass both
   before and after wiring.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -50,7 +51,7 @@ def test_interface_render_markdown_signature_matches_contract() -> None:
     assert str(signature.return_annotation) == "str"
 
 
-def test_interface_scan_handler_exposes_do_GET() -> None:
+def test_interface_scan_handler_exposes_do_get() -> None:
     assert callable(getattr(_Handler, "do_GET", None))
 
 

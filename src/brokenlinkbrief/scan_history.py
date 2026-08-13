@@ -1,4 +1,5 @@
 """Scan history storage and schema management."""
+
 from __future__ import annotations
 
 import hashlib
@@ -12,6 +13,7 @@ from typing import Any
 @dataclass(frozen=True)
 class ScanRecord:
     """A single scan history record."""
+
     id: str
     project_id: str
     scan_timestamp: str
@@ -45,6 +47,7 @@ class ScanHistoryStore:
     ) -> ScanRecord:
         """Record a scan result and return the created ScanRecord."""
         from datetime import datetime, timezone
+
         scan_id = uuid.uuid4().hex
         timestamp = datetime.now(timezone.utc).isoformat()
         raw_json = json.dumps(raw_results) if raw_results else None
@@ -55,16 +58,31 @@ class ScanHistoryStore:
              broken_count, new_broken_count, status, raw_results_json,
              last_known_good_hash, regression_flags)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (scan_id, project_id, timestamp, total_urls, total_links,
-             broken_count, new_broken_count, status, raw_json,
-             last_known_good_hash, flags_json),
+            (
+                scan_id,
+                project_id,
+                timestamp,
+                total_urls,
+                total_links,
+                broken_count,
+                new_broken_count,
+                status,
+                raw_json,
+                last_known_good_hash,
+                flags_json,
+            ),
         )
         self._db.commit()
         return ScanRecord(
-            id=scan_id, project_id=project_id, scan_timestamp=timestamp,
-            total_urls=total_urls, total_links=total_links,
-            broken_count=broken_count, new_broken_count=new_broken_count,
-            status=status, raw_results_json=raw_json,
+            id=scan_id,
+            project_id=project_id,
+            scan_timestamp=timestamp,
+            total_urls=total_urls,
+            total_links=total_links,
+            broken_count=broken_count,
+            new_broken_count=new_broken_count,
+            status=status,
+            raw_results_json=raw_json,
             last_known_good_hash=last_known_good_hash,
             regression_flags=flags_json,
         )
@@ -78,7 +96,7 @@ class ScanHistoryStore:
         ).fetchone()
         if row is None:
             return None
-        return ScanRecord(**{k: row[k] for k in row.keys()})
+        return ScanRecord(**{k: row[k] for k in row.keys()})  # noqa: SIM118 - sqlite3.Row iteration yields values, not keys
 
     def get_scan_history(
         self, project_id: str, limit: int = 50, offset: int = 0
@@ -89,7 +107,7 @@ class ScanHistoryStore:
             ORDER BY scan_timestamp DESC LIMIT ? OFFSET ?""",
             (project_id, limit, offset),
         ).fetchall()
-        return [ScanRecord(**{k: r[k] for k in r.keys()}) for r in rows]
+        return [ScanRecord(**{k: r[k] for k in r.keys()}) for r in rows]  # noqa: SIM118 - sqlite3.Row iteration yields values, not keys
 
     def update_regression_flags(self, scan_id: str, flags: list[str]) -> None:
         """Update regression flags for a scan."""

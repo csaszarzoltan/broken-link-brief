@@ -6,6 +6,7 @@ These PASS immediately with the stub module.
 Behavioral tests: verify expected behavior observations.
 These FAIL with NotImplementedError until implementation.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -498,9 +499,7 @@ class TestSchedulerServiceAddProject:
 class TestSchedulerServiceRemoveProject:
     """Test removing projects from the scheduler."""
 
-    def _make_config(
-        self, project_id: str = "proj-1"
-    ) -> ProjectSchedule:
+    def _make_config(self, project_id: str = "proj-1") -> ProjectSchedule:
         return ProjectSchedule(
             project_id=project_id,
             name="Test",
@@ -976,8 +975,7 @@ class TestGracefulShutdown:
                     errors.append(e)
 
             threads = [
-                threading.Thread(target=add_project, args=(f"p{i}",))
-                for i in range(10)
+                threading.Thread(target=add_project, args=(f"p{i}",)) for i in range(10)
             ]
             for t in threads:
                 t.start()

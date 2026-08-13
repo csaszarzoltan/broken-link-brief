@@ -5,16 +5,18 @@ Three-layer pre-dev test pattern:
   Layer 2: Signature/interface (PASS immediately)
   Layer 3: Behavioral detection (FAIL with NotImplementedError until implemented)
 """
+
 from __future__ import annotations
 
 import inspect
+
 import pytest
 
 from brokenlinkbrief.regression import (
     LinkResult,
-    is_broken,
-    detect_regressions,
     compute_results_hash,
+    detect_regressions,
+    is_broken,
 )
 
 
@@ -42,6 +44,7 @@ class TestDataclassStructure:
 
     def test_link_result_fields(self) -> None:
         from dataclasses import fields
+
         field_names = {f.name for f in fields(LinkResult)}
         assert "url" in field_names
         assert "status" in field_names
@@ -105,14 +108,24 @@ class TestIsBroken:
     def test_broken_with_timeout(self) -> None:
         """Timeout (status=None, reason=timeout) is broken."""
         try:
-            assert is_broken(LinkResult(url="http://x.com", status=None, reason="timeout")) is True
+            assert (
+                is_broken(LinkResult(url="http://x.com", status=None, reason="timeout"))
+                is True
+            )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
 
     def test_broken_with_fetch_error(self) -> None:
         """Fetch failure (status=None, reason=error) is broken."""
         try:
-            assert is_broken(LinkResult(url="http://x.com", status=None, reason="connection_error")) is True
+            assert (
+                is_broken(
+                    LinkResult(
+                        url="http://x.com", status=None, reason="connection_error"
+                    )
+                )
+                is True
+            )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
 
@@ -322,6 +335,7 @@ class TestRegressionFlags:
     def test_flags_stored_as_json_array(self) -> None:
         """Regression flags are stored as JSON array string."""
         import json
+
         prev = []
         current = [LinkResult(url="http://x.com", status=404)]
         try:
@@ -335,6 +349,7 @@ class TestRegressionFlags:
     def test_empty_flags_stored_as_empty_array(self) -> None:
         """No regressions stored as empty JSON array."""
         import json
+
         prev = [LinkResult(url="http://x.com", status=200)]
         current = [LinkResult(url="http://x.com", status=200)]
         try:

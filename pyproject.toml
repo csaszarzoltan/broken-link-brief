@@ -34,6 +34,7 @@ Issues = "https://github.com/csaszarzoltan/brokenlinkbrief/issues"
 dev = [
     "pytest>=7.0",
     "ruff>=0.1.0",
+    "pyyaml>=6.0",
 ]
 playwright = [
     "playwright>=1.40",
@@ -48,3 +49,16 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
+
+# E501 remaining lines are all inside string literals (embedded HTML/CSS/SQL
+# templates, test fixtures) that ruff format cannot reflow without changing
+# string content. Verified: 0 non-string lines exceed 88 chars. See
+# docs/decisions/refactor-baseline-2026-08-13.md for the audit trail.
+[tool.ruff.lint.per-file-ignores]
+"src/brokenlinkbrief/app.py" = ["E501"]
+"src/brokenlinkbrief/findings.py" = ["E501"]
+"src/brokenlinkbrief/governance.py" = ["E501"]
+"tests/test_scan_history_schema.py" = ["E501"]
+"tests/test_history.py" = ["E501"]
+"tests/test_diff_alerts.py" = ["E501"]
+"tools/_seed_portfolio_demo.py" = ["E501"]
