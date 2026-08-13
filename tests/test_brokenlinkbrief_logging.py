@@ -1,4 +1,5 @@
 """Acceptance tests for BrokenLinkBrief JSONL usage log."""
+
 from __future__ import annotations
 
 import json
@@ -71,6 +72,7 @@ class TestLogScanInterface:
         parsed = json.loads(captured.err.strip())
         ts = parsed["timestamp"]
         import datetime
+
         datetime.datetime.fromisoformat(ts)
 
     def test_log_scan_fields_present(self, capsys):
@@ -95,9 +97,7 @@ class TestLogScanInterface:
         from brokenlinkbrief.app import _log_scan
 
         results = [
-            LinkResult(
-                url="https://ok.com", status=200, reason="OK", location=None
-            ),
+            LinkResult(url="https://ok.com", status=200, reason="OK", location=None),
             LinkResult(
                 url="https://broken.com",
                 status=404,
@@ -115,9 +115,7 @@ class TestLogScanInterface:
         from brokenlinkbrief.app import _log_scan
 
         results = [
-            LinkResult(
-                url="https://ok.com", status=200, reason="OK", location=None
-            ),
+            LinkResult(url="https://ok.com", status=200, reason="OK", location=None),
             LinkResult(
                 url="https://broken.com",
                 status=None,

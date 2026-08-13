@@ -1,4 +1,5 @@
 """Durable SQLite scan-job state, leases, recovery, and idempotency."""
+
 from __future__ import annotations
 
 import hashlib
@@ -99,9 +100,7 @@ class ScanJobStore:
                 [project_id, targets, origin, parent_job_id], sort_keys=True
             ).encode()
         ).hexdigest()
-        kh = hashlib.sha256(
-            (idempotency_key or uuid.uuid4().hex).encode()
-        ).hexdigest()
+        kh = hashlib.sha256((idempotency_key or uuid.uuid4().hex).encode()).hexdigest()
         with self._db() as db:
             if idempotency_key:
                 old = db.execute(
@@ -154,9 +153,7 @@ class ScanJobStore:
     def get(self, jid: str) -> dict:
         """Return a job dict with source state counts."""
         with self._db() as db:
-            row = db.execute(
-                "SELECT * FROM scan_jobs WHERE id=?", (jid,)
-            ).fetchone()
+            row = db.execute("SELECT * FROM scan_jobs WHERE id=?", (jid,)).fetchone()
             if not row:
                 raise KeyError(jid)
             counts = {

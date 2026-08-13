@@ -5,6 +5,7 @@ Three-layer pre-dev test pattern:
   Layer 2: Signature / type-hint checks (PASS immediately)
   Layer 3: Behavioral stubs (FAIL with NotImplementedError)
 """
+
 from __future__ import annotations
 
 import inspect
@@ -131,9 +132,7 @@ class TestSpaScannerBehavior:
         """When render_js=False, no Playwright launch occurs."""
         scanner = SpaScanner()
         # render_js=False should NOT raise — it uses raw urllib, no Playwright
-        results = scanner.scan_page(
-            "https://example.com/static", render_js=False
-        )
+        results = scanner.scan_page("https://example.com/static", render_js=False)
         assert isinstance(results, list)
 
     def test_scan_page_returns_link_result_list(self) -> None:
@@ -179,7 +178,9 @@ class TestSpaScannerBehavior:
         """render_and_extract_links must return list[str]."""
         scanner = SpaScanner()
         try:
-            links = scanner.render_and_extract_links("<html></html>", "https://example.com")
+            links = scanner.render_and_extract_links(
+                "<html></html>", "https://example.com"
+            )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert isinstance(links, list)
@@ -198,8 +199,7 @@ class TestSpaScannerBehavior:
         """Same URL appearing multiple times yields only one result."""
         scanner = SpaScanner()
         links = scanner.render_and_extract_links(
-            '<a href="https://example.com/a"></a>'
-            '<a href="https://example.com/a"></a>',
+            '<a href="https://example.com/a"></a><a href="https://example.com/a"></a>',
             "https://example.com",
         )
         assert links == ["https://example.com/a"]
@@ -208,9 +208,9 @@ class TestSpaScannerBehavior:
         """Links created via document.createElement are present in rendered HTML."""
         scanner = SpaScanner()
         html_with_js_links = (
-            '<html><body>'
-            '<script>document.body.innerHTML += \'<a href="https://dynamic.example.com">Dynamic</a>\'</script>'
-            '</body></html>'
+            "<html><body>"
+            "<script>document.body.innerHTML += '<a href=\"https://dynamic.example.com\">Dynamic</a>'</script>"
+            "</body></html>"
         )
         # render_and_extract_links parses whatever HTML it receives
         links = scanner.render_and_extract_links(
@@ -228,11 +228,11 @@ class TestSpaScannerBehavior:
         """All href attributes in the rendered HTML are extracted."""
         scanner = SpaScanner()
         html = (
-            '<html><body>'
+            "<html><body>"
             '<a href="https://a.example.com">A</a>'
             '<a href="https://b.example.com">B</a>'
             '<a href="https://c.example.com">C</a>'
-            '</body></html>'
+            "</body></html>"
         )
         links = scanner.render_and_extract_links(html, "https://example.com")
         assert links == [
@@ -250,6 +250,7 @@ class TestLinkResultStructure:
 
     def test_link_result_is_dataclass(self) -> None:
         from dataclasses import is_dataclass
+
         assert is_dataclass(LinkResult)
 
     def test_link_result_fields(self) -> None:

@@ -1,4 +1,5 @@
 """Scheduled projects dashboard view."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ScheduledProjectView:
     """A single scheduled project as displayed on the dashboard."""
+
     project_id: str
     project_name: str
     cadence: str

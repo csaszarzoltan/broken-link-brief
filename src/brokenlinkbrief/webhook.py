@@ -4,6 +4,7 @@ Provides webhook registration, HMAC-SHA256 signed delivery,
 and retry logic for notifying external systems when broken
 links are detected during scans.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -25,14 +26,16 @@ from brokenlinkbrief.package import LinkResult
 # SSRF protection for webhook URLs
 # ---------------------------------------------------------------------------
 
-_BLOCKED_HOSTS = frozenset({
-    "localhost",
-    "127.0.0.1",
-    "0.0.0.0",
-    "::1",
-    "metadata.google.internal",
-    "169.254.169.254",
-})
+_BLOCKED_HOSTS = frozenset(
+    {
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "metadata.google.internal",
+        "169.254.169.254",
+    }
+)
 
 
 def _is_private_ip(hostname: str) -> bool:
@@ -81,9 +84,11 @@ def validate_webhook_url(url: str) -> str | None:
 # Webhook storage
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class WebhookRegistration:
     """A registered webhook endpoint."""
+
     id: str
     url: str
     secret: str | None = None
@@ -155,6 +160,7 @@ class WebhookRegistry:
 # HMAC signing
 # ---------------------------------------------------------------------------
 
+
 def sign_payload(payload_bytes: bytes, secret: str) -> str:
     """Compute an HMAC-SHA256 hex digest for *payload_bytes* using *secret*.
 
@@ -181,6 +187,7 @@ def verify_signature(
 # ---------------------------------------------------------------------------
 # Delivery
 # ---------------------------------------------------------------------------
+
 
 def deliver_webhook(
     url: str,
@@ -246,6 +253,7 @@ def deliver_with_retry(
 # Scan-result payload builder
 # ---------------------------------------------------------------------------
 
+
 def build_payload(
     scanned_url: str,
     results: list[LinkResult],
@@ -278,6 +286,7 @@ def build_payload(
 # Trigger: notify all registered webhooks
 # ---------------------------------------------------------------------------
 
+
 def trigger_webhooks(
     registry: WebhookRegistry,
     scanned_url: str,
@@ -308,11 +317,13 @@ def trigger_webhooks(
             deliver_with_retry(wh.url, payload_bytes, wh.secret)
             outcomes.append({"webhook_id": wh.id, "url": wh.url, "status": "ok"})
         except (ConnectionError, RuntimeError) as exc:
-            outcomes.append({
-                "webhook_id": wh.id,
-                "url": wh.url,
-                "status": "error",
-                "detail": str(exc),
-            })
+            outcomes.append(
+                {
+                    "webhook_id": wh.id,
+                    "url": wh.url,
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
 
     return outcomes

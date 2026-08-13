@@ -451,6 +451,7 @@ class TestDetectorInit:
             pytest.skip("Not implemented yet — RED phase")
         assert detector is not None
 
+
 # ============================================================================
 # SECTION 5: BEHAVIORAL TESTS — DETECT (RED phase)
 # ============================================================================
@@ -699,6 +700,7 @@ class TestDetect:
         assert report.has_regressions is False
         assert report.previous_scan_id is None
 
+
 # ============================================================================
 # SECTION 6: BEHAVIORAL TESTS — GET_LAST_SUCCESSFUL (RED phase)
 # ============================================================================
@@ -763,6 +765,7 @@ class TestGetLastSuccessful:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert result is None
+
 
 # ============================================================================
 # SECTION 7: BEHAVIORAL TESTS — COMPARE_LINK (RED phase)
@@ -837,8 +840,6 @@ class TestCompareLink:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert result == "new_broken"
-
-
 
 
 # ============================================================================
@@ -949,6 +950,7 @@ class TestExtractBrokenUrls:
             pytest.skip("Not implemented yet — RED phase")
         assert isinstance(urls, set)
 
+
 # ============================================================================
 # SECTION 9: BEHAVIORAL TESTS — REGRESSION NOTIFIER INIT (RED phase)
 # ============================================================================
@@ -975,6 +977,7 @@ class TestNotifierInit:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert notifier is not None
+
 
 # ============================================================================
 # SECTION 10: BEHAVIORAL TESTS — NOTIFY (RED phase)
@@ -1016,8 +1019,6 @@ class TestNotify:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert result == {}
-
-
 
 
 # ============================================================================
@@ -1094,8 +1095,6 @@ class TestFormatAlert:
         assert "example.com/missing" in msg
 
 
-
-
 # ============================================================================
 # SECTION 12: BEHAVIORAL TESTS — FORMAT_RESOLUTION (RED phase)
 # ============================================================================
@@ -1150,6 +1149,7 @@ class TestFormatResolution:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert "example.com/fixed" in msg
+
 
 # ============================================================================
 # SECTION 13: BEHAVIORAL TESTS — SHOULD_NOTIFY (RED phase)
@@ -1214,6 +1214,7 @@ class TestShouldNotify:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert result is False
+
 
 # ============================================================================
 # SECTION 14: CROSS-MODULE INTEGRATION TESTS (RED phase)

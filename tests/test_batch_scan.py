@@ -7,6 +7,7 @@ State at authoring time (pre-tester, t_223c730d):
 - Therefore ALL behavioral tests are expected to FAIL against the stubs and
   PASS only after the developer implements the batch scanning feature.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -26,12 +27,14 @@ from brokenlinkbrief.package import LinkResult
 def test_interface_validate_scan_url_importable() -> None:
     """validate_scan_url must be importable from the package module."""
     from brokenlinkbrief.package import validate_scan_url
+
     assert callable(validate_scan_url)
 
 
 def test_interface_validate_scan_url_signature() -> None:
     """validate_scan_url(url: str) -> str | None"""
     from brokenlinkbrief.package import validate_scan_url
+
     sig = inspect.signature(validate_scan_url)
     params = list(sig.parameters.values())
     assert len(params) == 1
@@ -42,12 +45,14 @@ def test_interface_validate_scan_url_signature() -> None:
 def test_interface_scan_batch_importable() -> None:
     """scan_batch must be importable from the package module."""
     from brokenlinkbrief.package import scan_batch
+
     assert callable(scan_batch)
 
 
 def test_interface_scan_batch_signature() -> None:
     """scan_batch(urls: list[str], timeout: float, max_workers: int) -> dict"""
     from brokenlinkbrief.package import scan_batch
+
     sig = inspect.signature(scan_batch)
     params = list(sig.parameters.values())
     assert len(params) == 3
@@ -77,18 +82,21 @@ def test_interface_scan_handler_exposes_do_post() -> None:
 def test_behavior_validate_scan_url_allows_public_http() -> None:
     """Public HTTP URLs should be allowed."""
     from brokenlinkbrief.package import validate_scan_url
+
     assert validate_scan_url("http://example.com") is None
 
 
 def test_behavior_validate_scan_url_allows_public_https() -> None:
     """Public HTTPS URLs should be allowed."""
     from brokenlinkbrief.package import validate_scan_url
+
     assert validate_scan_url("https://example.com") is None
 
 
 def test_behavior_validate_scan_url_blocks_loopback() -> None:
     """Loopback addresses must be blocked."""
     from brokenlinkbrief.package import validate_scan_url
+
     result = validate_scan_url("http://127.0.0.1")
     assert result is not None
 
@@ -96,6 +104,7 @@ def test_behavior_validate_scan_url_blocks_loopback() -> None:
 def test_behavior_validate_scan_url_blocks_ipv6_loopback() -> None:
     """IPv6 loopback must be blocked."""
     from brokenlinkbrief.package import validate_scan_url
+
     result = validate_scan_url("http://[::1]")
     assert result is not None
 
@@ -103,6 +112,7 @@ def test_behavior_validate_scan_url_blocks_ipv6_loopback() -> None:
 def test_behavior_validate_scan_url_blocks_private_ip() -> None:
     """Private IPs (10.x, 172.16-31.x, 192.168.x) must be blocked."""
     from brokenlinkbrief.package import validate_scan_url
+
     result = validate_scan_url("http://10.0.0.1")
     assert result is not None
 
@@ -110,6 +120,7 @@ def test_behavior_validate_scan_url_blocks_private_ip() -> None:
 def test_behavior_validate_scan_url_blocks_metadata_endpoint() -> None:
     """Cloud metadata endpoints must be blocked."""
     from brokenlinkbrief.package import validate_scan_url
+
     result = validate_scan_url("http://169.254.169.254/metadata")
     assert result is not None
 
@@ -117,6 +128,7 @@ def test_behavior_validate_scan_url_blocks_metadata_endpoint() -> None:
 def test_behavior_validate_scan_url_blocks_invalid_url() -> None:
     """Invalid / unparseable URLs must be blocked."""
     from brokenlinkbrief.package import validate_scan_url
+
     result = validate_scan_url("not-a-url")
     assert result is not None
 
@@ -127,6 +139,7 @@ def test_behavior_validate_scan_url_blocks_invalid_url() -> None:
 def test_behavior_scan_batch_returns_dict_keyed_by_url() -> None:
     """scan_batch must return a dict keyed by input URL."""
     from brokenlinkbrief.package import scan_batch
+
     result = scan_batch(["https://a.example.com", "https://b.example.com"])
     assert isinstance(result, dict)
     assert "https://a.example.com" in result
@@ -136,6 +149,7 @@ def test_behavior_scan_batch_returns_dict_keyed_by_url() -> None:
 def test_behavior_scan_batch_values_are_link_result_lists() -> None:
     """Each value must be a list of LinkResult objects."""
     from brokenlinkbrief.package import scan_batch
+
     result = scan_batch(["https://a.example.com"])
     assert isinstance(result["https://a.example.com"], list)
     assert isinstance(result["https://a.example.com"][0], LinkResult)
@@ -144,6 +158,7 @@ def test_behavior_scan_batch_values_are_link_result_lists() -> None:
 def test_behavior_scan_batch_handles_per_url_exceptions() -> None:
     """Per-URL exceptions must be captured, not propagated."""
     from brokenlinkbrief.package import scan_batch
+
     result = scan_batch(["https://a.example.com", "https://b.example.com"])
     # At least one URL should have a result (even if it's an error)
     assert len(result) == 2
@@ -152,6 +167,7 @@ def test_behavior_scan_batch_handles_per_url_exceptions() -> None:
 def test_behavior_scan_batch_respects_max_workers() -> None:
     """max_workers parameter must be accepted and respected."""
     from brokenlinkbrief.package import scan_batch
+
     result = scan_batch(["https://a.example.com"], max_workers=1)
     assert isinstance(result, dict)
 
@@ -351,11 +367,13 @@ def test_behavior_batch_endpoint_rejects_ssrf_urls() -> None:
 
     monkeypatch = pytest.MonkeyPatch()
     server, port = _start_server(monkeypatch)
+
     # Override validate_scan_url to actually block loopback
     def blocking_validate(url: str):
         if "127.0.0.1" in url:
             return "blocked host"
         return None
+
     monkeypatch.setattr("brokenlinkbrief.package.validate_scan_url", blocking_validate)
     try:
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)

@@ -1,4 +1,5 @@
 """TDD coverage for duplicating saved projects."""
+
 from __future__ import annotations
 
 import http.client
@@ -20,9 +21,9 @@ def _server():
 
 def test_project_store_duplicates_project_with_new_identity(tmp_path) -> None:
     store = ProjectStore(tmp_path / "projects.db")
-    source = store.create("Main site", [
-        "https://example.com/", "https://example.com/docs"
-    ])
+    source = store.create(
+        "Main site", ["https://example.com/", "https://example.com/docs"]
+    )
 
     duplicate = store.duplicate(source.id)
 

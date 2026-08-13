@@ -1,4 +1,5 @@
 """Evidence-based link confidence classification."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -32,9 +33,7 @@ def classify_evidence(attempts: list[ProbeAttempt]) -> ConfidenceAssessment:
     if not attempts:
         return ConfidenceAssessment("UNVERIFIED", 0, "no evidence")
     statuses = {a.status for a in attempts}
-    if 403 in statuses and any(
-        s is not None and 200 <= s < 400 for s in statuses
-    ):
+    if 403 in statuses and any(s is not None and 200 <= s < 400 for s in statuses):
         return ConfidenceAssessment(
             "BOT_BLOCKED",
             len(attempts),

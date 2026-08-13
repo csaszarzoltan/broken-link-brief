@@ -3,6 +3,7 @@
 Compares current scan results against persisted link state
 and produces a DiffReport with per-URL change categories.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -60,9 +61,7 @@ class DiffDetector:
         # Build previous lookup from the store
         prev_by_url: dict[str, dict[str, Any]] = {}
         try:
-            previous_states = self._store.get_link_states(
-                project_id, target_url
-            )
+            previous_states = self._store.get_link_states(project_id, target_url)
             for state in previous_states:
                 url = state.link_url
                 if url not in prev_by_url:

@@ -22,6 +22,7 @@ Test conventions (repo): tests/conftest.py injects src/; HTTP tests start a
 real HTTPServer((127.0.0.1, 0), _Handler) on a thread with
 BROKENLINKBRIEF_SCAN_TOKEN=test-token (pattern from test_scheduled_projects_view.py).
 """
+
 from __future__ import annotations
 
 import http.client
@@ -92,6 +93,7 @@ def _seed_findings(
             ],
             {"https://site.test/source": "<p>removed</p>"},
         )
+
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -254,9 +256,7 @@ class TestPortfolioModuleInterface:
         assert params[0] == "project_ids", (
             f"Expected project_ids as first param, got {params}"
         )
-        assert params[1] == "days", (
-            f"Expected days as second param, got {params}"
-        )
+        assert params[1] == "days", f"Expected days as second param, got {params}"
         assert sig.parameters["project_ids"].default is None
         assert sig.parameters["days"].default == 30
 
@@ -339,8 +339,7 @@ def seeded_portfolio(
     scan_history FOREIGN KEY holds (production uses one shared DB file).
     """
     all_projects = (
-        portfolio_project_store.list_active()
-        + portfolio_project_store.list_archived()
+        portfolio_project_store.list_active() + portfolio_project_store.list_archived()
     )
     for project in all_projects:
         portfolio_db.execute(
@@ -365,20 +364,36 @@ def seeded_portfolio(
     gamma = by_name["Gamma"]
 
     store.record_scan(
-        alpha.id, total_urls=10, total_links=40, broken_count=3,
-        new_broken_count=1, status="completed",
+        alpha.id,
+        total_urls=10,
+        total_links=40,
+        broken_count=3,
+        new_broken_count=1,
+        status="completed",
     )
     store.record_scan(
-        alpha.id, total_urls=10, total_links=50, broken_count=5,
-        new_broken_count=2, status="completed",
+        alpha.id,
+        total_urls=10,
+        total_links=50,
+        broken_count=5,
+        new_broken_count=2,
+        status="completed",
     )
     store.record_scan(
-        beta.id, total_urls=5, total_links=20, broken_count=8,
-        new_broken_count=0, status="completed",
+        beta.id,
+        total_urls=5,
+        total_links=20,
+        broken_count=8,
+        new_broken_count=0,
+        status="completed",
     )
     store.record_scan(
-        gamma.id, total_urls=3, total_links=9, broken_count=1,
-        new_broken_count=0, status="completed",
+        gamma.id,
+        total_urls=3,
+        total_links=9,
+        broken_count=1,
+        new_broken_count=0,
+        status="completed",
     )
     return {"alpha": alpha, "beta": beta, "gamma": gamma}
 
@@ -387,7 +402,8 @@ class TestPortfolioAggregationBehavior:
     """Real-value behavioral tests (RED until portfolio.py is implemented)."""
 
     def test_empty_portfolio_is_zeros_with_full_health(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """Empty DB (no projects, no scans) → zeros, health 100.0, no raise."""
         from brokenlinkbrief.portfolio import get_portfolio
@@ -416,7 +432,8 @@ class TestPortfolioAggregationBehavior:
         assert summary.last_scan_timestamp is None
 
     def test_totals_sum_latest_records_across_active_projects(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -441,16 +458,15 @@ class TestPortfolioAggregationBehavior:
         assert summary.health_score == pytest.approx(81.4, abs=0.05)
 
     def test_project_without_history_is_never_run(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
         """A project with no scan_history counts as unscanned, status never_run."""
         from brokenlinkbrief.portfolio import get_portfolio, get_portfolio_rows
 
-        fresh = portfolio_project_store.create(
-            "Fresh", ["https://fresh.example.com/"]
-        )
+        fresh = portfolio_project_store.create("Fresh", ["https://fresh.example.com/"])
         summary = get_portfolio(
             project_ids=None,
             project_store=portfolio_project_store,
@@ -475,7 +491,8 @@ class TestPortfolioAggregationBehavior:
         assert fresh_row.last_scan_timestamp is None
 
     def test_rows_expose_latest_record_values(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -492,7 +509,7 @@ class TestPortfolioAggregationBehavior:
         alpha = by_id[seeded_portfolio["alpha"].id]
         beta = by_id[seeded_portfolio["beta"].id]
 
-        assert alpha.total_links == 50      # latest, not 40
+        assert alpha.total_links == 50  # latest, not 40
         assert alpha.broken_count == 5
         assert alpha.new_broken_count == 2
         assert alpha.last_scan_status == "completed"
@@ -509,7 +526,8 @@ class TestPortfolioAggregationBehavior:
         assert seeded_portfolio["gamma"].id not in by_id
 
     def test_project_ids_filter_restricts_rows(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -536,7 +554,8 @@ class TestPortfolioAggregationBehavior:
         assert summary.broken_count == 8
 
     def test_project_ids_explicitly_include_archived(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -564,7 +583,8 @@ class TestPortfolioAggregationBehavior:
         assert summary.broken_count == 1
 
     def test_rows_attribue_findings_per_project(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
         portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
@@ -578,9 +598,7 @@ class TestPortfolioAggregationBehavior:
         from brokenlinkbrief.portfolio import get_portfolio_rows
 
         finding_store = FindingStore(tmp_path / "findings.db")
-        finding_store.ensure_project(
-            seeded_portfolio["alpha"].id, "Alpha"
-        )
+        finding_store.ensure_project(seeded_portfolio["alpha"].id, "Alpha")
         finding_store.ensure_project(seeded_portfolio["beta"].id, "Beta")
         _seed_findings(finding_store, seeded_portfolio["alpha"].id, 1, 1)
         _seed_findings(finding_store, seeded_portfolio["beta"].id, 1, 0)
@@ -601,7 +619,8 @@ class TestPortfolioAggregationBehavior:
         assert beta.resolved_findings == 0, beta
 
     def test_trend_returns_ascending_daily_points(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -623,7 +642,8 @@ class TestPortfolioAggregationBehavior:
                 assert point.broken_count >= 0
 
     def test_trend_days_le_zero_returns_all_history(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -639,7 +659,8 @@ class TestPortfolioAggregationBehavior:
         assert isinstance(trend, list)
 
     def test_trend_date_format_yyyy_mm_dd(
-        self, portfolio_db: sqlite3.Connection,
+        self,
+        portfolio_db: sqlite3.Connection,
         portfolio_project_store: ProjectStore,
         seeded_portfolio,
     ) -> None:
@@ -656,9 +677,7 @@ class TestPortfolioAggregationBehavior:
             history_db=portfolio_db,
         )
         for point in trend:
-            assert date_re.match(point.date), (
-                f"Bad date format: {point.date}"
-            )
+            assert date_re.match(point.date), f"Bad date format: {point.date}"
 
 
 # ---------------------------------------------------------------------------
@@ -675,13 +694,12 @@ class TestPortfolioHttpEndpoint:
     """HTTP behavior of GET /api/portfolio (brief §4.1)."""
 
     def test_portfolio_route_returns_200_json(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """GET /api/portfolio?token=... → 200 with JSON body."""
         pytest.skip("RED phase: /api/portfolio route not wired yet")
-        status, body, ct = _request(
-            _start_server, "/api/portfolio?token=test-token"
-        )
+        status, body, ct = _request(_start_server, "/api/portfolio?token=test-token")
         assert status == 200, f"Expected 200, got {status}"
         assert "json" in ct
         assert body is not None
@@ -699,7 +717,8 @@ class TestPortfolioHttpEndpoint:
         assert status == 401, f"Expected 401, got {status}"
 
     def test_portfolio_project_ids_filter_returns_200(
-        self, _start_server: int,
+        self,
+        _start_server: int,
     ) -> None:
         """project_ids filter is accepted and returns 200 JSON."""
         pytest.skip("RED phase: /api/portfolio route not wired yet")
@@ -716,9 +735,7 @@ class TestPortfolioHttpEndpoint:
     def test_portfolio_summary_shape(self, _start_server: int) -> None:
         """Portfolio summary payload has the spec'd keys."""
         pytest.skip("RED phase: /api/portfolio route not wired yet")
-        status, body, _ = _request(
-            _start_server, "/api/portfolio?token=test-token"
-        )
+        status, body, _ = _request(_start_server, "/api/portfolio?token=test-token")
         if status != 200 or body is None:
             return
         summary = body["summary"]
@@ -739,9 +756,7 @@ class TestPortfolioHttpEndpoint:
     def test_portfolio_rows_shape(self, _start_server: int) -> None:
         """Each project row has the spec'd keys."""
         pytest.skip("RED phase: /api/portfolio route not wired yet")
-        status, body, _ = _request(
-            _start_server, "/api/portfolio?token=test-token"
-        )
+        status, body, _ = _request(_start_server, "/api/portfolio?token=test-token")
         if status != 200 or body is None:
             return
         projects = body.get("projects", [])
@@ -762,7 +777,9 @@ class TestPortfolioHttpEndpoint:
                 assert key in row, f"Missing row key: {key}"
 
     def test_portfolio_rows_attribue_findings_per_project_http(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """GET /api/portfolio attributes findings per project, not totals.
 
@@ -806,10 +823,16 @@ class TestPortfolioHttpEndpoint:
             """
         )
         ScanHistoryStore(db).record_scan(
-            alpha.id, total_urls=10, total_links=50, broken_count=5,
+            alpha.id,
+            total_urls=10,
+            total_links=50,
+            broken_count=5,
         )
         ScanHistoryStore(db).record_scan(
-            beta.id, total_urls=5, total_links=20, broken_count=8,
+            beta.id,
+            total_urls=5,
+            total_links=20,
+            broken_count=8,
         )
         db.commit()
         db.close()
@@ -825,16 +848,12 @@ class TestPortfolioHttpEndpoint:
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         try:
-            status, body, _ = _request(
-                port, "/api/portfolio?token=test-token"
-            )
+            status, body, _ = _request(port, "/api/portfolio?token=test-token")
             assert status == 200, f"Expected 200, got {status}"
             assert body is not None
             projects = {row["project_id"]: row for row in body["projects"]}
             assert projects[alpha.id]["open_findings"] == 1, projects[alpha.id]
-            assert projects[alpha.id]["resolved_findings"] == 1, (
-                projects[alpha.id]
-            )
+            assert projects[alpha.id]["resolved_findings"] == 1, projects[alpha.id]
             assert projects[beta.id]["open_findings"] == 1, projects[beta.id]
             assert projects[beta.id]["resolved_findings"] == 0, projects[beta.id]
         finally:

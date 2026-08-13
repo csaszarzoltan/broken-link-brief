@@ -9,6 +9,7 @@ State at authoring time (pre-tester):
 - Therefore ALL behavioral tests are expected to FAIL against the NotImplementedError stubs
   and PASS only after the developer implements history storage, endpoints, and change detection.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -16,8 +17,6 @@ import inspect
 import json
 import socket
 import threading
-import time
-from datetime import datetime, timezone
 from http.server import HTTPServer
 from typing import Any
 
@@ -31,55 +30,70 @@ from brokenlinkbrief.package import LinkResult
 # All new functions and classes must be importable with the correct signatures.
 # ---------------------------------------------------------------------------
 
+
 def test_interface_history_store_importable() -> None:
     """HistoryStore must be importable from the package module."""
     from brokenlinkbrief.package import HistoryStore
+
     assert HistoryStore is not None
+
 
 def test_interface_record_scan_importable() -> None:
     """record_scan must be importable from the package module."""
     from brokenlinkbrief.package import record_scan
+
     assert callable(record_scan)
+
 
 def test_interface_get_history_importable() -> None:
     """get_history must be importable from the package module."""
     from brokenlinkbrief.package import get_history
+
     assert callable(get_history)
+
 
 def test_interface_compute_diff_importable() -> None:
     """compute_diff must be importable from the package module."""
     from brokenlinkbrief.package import compute_diff
+
     assert callable(compute_diff)
 
 
 def test_interface_history_store_class_signature() -> None:
     """HistoryStore class must have correct signature."""
     from brokenlinkbrief.package import HistoryStore
-    assert hasattr(HistoryStore, '__init__')
+
+    assert hasattr(HistoryStore, "__init__")
     sig = inspect.signature(HistoryStore.__init__)
     params = list(sig.parameters.values())
     assert len(params) >= 1
 
+
 def test_interface_record_scan_signature() -> None:
     """record_scan(results: list[LinkResult], url: str) -> None"""
     from brokenlinkbrief.package import record_scan
+
     sig = inspect.signature(record_scan)
     params = list(sig.parameters.values())
     assert len(params) >= 2
     assert params[0].name == "results"
     assert params[1].name == "url"
 
+
 def test_interface_get_history_signature() -> None:
     """get_history(url: str, limit: int = 100, since: str | None = None) -> list[dict]"""
     from brokenlinkbrief.package import get_history
+
     sig = inspect.signature(get_history)
     params = list(sig.parameters.values())
     assert len(params) >= 1
     assert params[0].name == "url"
 
+
 def test_interface_compute_diff_signature() -> None:
     """compute_diff(previous: list[dict], current: list[dict]) -> dict"""
     from brokenlinkbrief.package import compute_diff
+
     sig = inspect.signature(compute_diff)
     params = list(sig.parameters.values())
     assert len(params) >= 2
@@ -90,6 +104,7 @@ def test_interface_compute_diff_signature() -> None:
 def test_interface_history_endpoints_exist() -> None:
     """_Handler must have /history and /diff endpoints (do_GET covers them)."""
     assert callable(getattr(_Handler, "do_GET", None))
+
 
 # ---------------------------------------------------------------------------
 # Behavioral tests — encode the history tracking contract.
@@ -131,9 +146,10 @@ def _start_server(monkeypatch, enable_history: bool = True) -> tuple:
 def _get_hosted_history(store_path: str) -> Any:
     """Helper to read the history file content."""
     import os
+
     if os.path.exists(store_path):
-        with open(store_path, 'r') as f:
-            return [json.loads(line) for line in f.read().strip().split('\n') if line]
+        with open(store_path) as f:
+            return [json.loads(line) for line in f.read().strip().split("\n") if line]
     return []
 
 
@@ -141,23 +157,30 @@ def test_behavior_record_scan_writes_jsonl_history() -> None:
     """record_scan() must append timestamped scan results to JSONL history file."""
     monkeypatch = pytest.MonkeyPatch()
     try:
-        from brokenlinkbrief.package import record_scan, HistoryStore
+        from brokenlinkbrief.package import HistoryStore, record_scan
 
         # Create a HistoryStore instance
         store = HistoryStore()
-        history_file = getattr(store, 'history_file', None)
-        
+        getattr(store, "history_file", None)
+
         # Simulate scan results
         results = [
             LinkResult(url="https://test.com", status=200, reason="OK", location=None),
-            LinkResult(url="https://broken.com", status=404, reason="Not Found", location="/notfound"),
+            LinkResult(
+                url="https://broken.com",
+                status=404,
+                reason="Not Found",
+                location="/notfound",
+            ),
         ]
 
         # This should write to history file (or raise NotImplementedError)
         try:
             record_scan(results, "https://test.com")
         except NotImplementedError:
-            pytest.fail("record_scan() should not raise NotImplementedError - this is the feature under development")
+            pytest.fail(
+                "record_scan() should not raise NotImplementedError - this is the feature under development"
+            )
 
         # Verify history file was written (implementation-specific)
         # For now, we just check that it doesn't crash
@@ -188,9 +211,21 @@ def test_behavior_compute_diff_detects_changes() -> None:
     ]
 
     current = [
-        {"url": "https://example.com", "status": 404, "broken": True},  # Was working, now broken
-        {"url": "https://broken.com", "status": 200, "broken": False},  # Was broken, now working
-        {"url": "https://newbroken.com", "status": 500, "broken": True},  # New broken link
+        {
+            "url": "https://example.com",
+            "status": 404,
+            "broken": True,
+        },  # Was working, now broken
+        {
+            "url": "https://broken.com",
+            "status": 200,
+            "broken": False,
+        },  # Was broken, now working
+        {
+            "url": "https://newbroken.com",
+            "status": 500,
+            "broken": True,
+        },  # New broken link
     ]
 
     result = compute_diff(previous, current)
@@ -227,7 +262,7 @@ def test_behavior_history_change_detection_triggers_webhook_only_on_changes() ->
             headers={"Host": "127.0.0.1"},
         )
         resp = conn.getresponse()
-        body = resp.read().decode("utf-8")
+        resp.read().decode("utf-8")
         conn.close()
         assert resp.status == 200
 
@@ -239,7 +274,7 @@ def test_behavior_history_change_detection_triggers_webhook_only_on_changes() ->
             headers={"Host": "127.0.0.1"},
         )
         resp = conn.getresponse()
-        body = resp.read().decode("utf-8")
+        resp.read().decode("utf-8")
         conn.close()
         assert resp.status == 200
 
@@ -262,8 +297,18 @@ def test_behavior_batch_scanning_populates_history() -> None:
         # Mock scan_batch to return results
         mock_results = {
             "https://example.com": [
-                LinkResult(url="https://example.com/page1", status=200, reason="OK", location=None),
-                LinkResult(url="https://example.com/page2", status=404, reason="Not Found", location=None),
+                LinkResult(
+                    url="https://example.com/page1",
+                    status=200,
+                    reason="OK",
+                    location=None,
+                ),
+                LinkResult(
+                    url="https://example.com/page2",
+                    status=404,
+                    reason="Not Found",
+                    location=None,
+                ),
             ]
         }
 
@@ -287,7 +332,7 @@ def test_behavior_history_edge_cases_handled() -> None:
     monkeypatch = pytest.MonkeyPatch()
 
     try:
-        from brokenlinkbrief.package import get_history, compute_diff
+        from brokenlinkbrief.package import compute_diff, get_history
 
         # Test 1: First scan for a URL (no history)
         result = get_history("https://fresh-url.com")

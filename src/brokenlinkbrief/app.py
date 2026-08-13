@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 
 from brokenlinkbrief import __version__
 from brokenlinkbrief.finding_service import FindingService
-from brokenlinkbrief.findings import FindingStore, VersionConflict
+from brokenlinkbrief.findings import FindingStore, VersionConflictError
 from brokenlinkbrief.job_service import JobService
 from brokenlinkbrief.notifications import NotifierConfig, RateLimiter, notify_all
 from brokenlinkbrief.package import (
@@ -2079,7 +2079,7 @@ def _handle_findings_post(
             result = _verify_finding(store, finding_id, body["version"])
         else:
             raise KeyError(action)
-    except VersionConflict as exc:
+    except VersionConflictError as exc:
         _write_json(
             handler, 409, {"code": "finding_version_conflict", "detail": str(exc)}
         )

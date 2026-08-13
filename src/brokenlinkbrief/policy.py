@@ -1,4 +1,5 @@
 """Central outbound crawl policy with SSRF and resource controls."""
+
 from __future__ import annotations
 
 import ipaddress
@@ -67,9 +68,7 @@ def validate_target(
             addresses = tuple(
                 dict.fromkeys(
                     info[4][0]
-                    for info in resolver(
-                        parsed.hostname, port, type=socket.SOCK_STREAM
-                    )
+                    for info in resolver(parsed.hostname, port, type=socket.SOCK_STREAM)
                 )
             )
     except OSError as exc:

@@ -1,4 +1,5 @@
 """Project-scoped cache for safe, policy-specific scan observations."""
+
 from __future__ import annotations
 
 import json

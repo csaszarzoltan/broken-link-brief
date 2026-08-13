@@ -137,11 +137,13 @@ for config in configs:
 ```python
 from brokenlinkbrief.scheduler_config import validate_project_config
 
-config = validate_project_config({
-    "name": "My project",
-    "urls": ["https://example.com/"],
-    "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
-})
+config = validate_project_config(
+    {
+        "name": "My project",
+        "urls": ["https://example.com/"],
+        "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
+    }
+)
 ```
 
 ### Validation Rules
@@ -164,14 +166,16 @@ service = SchedulerService(db_path="scheduler.db")
 service.start()
 
 # Add a project schedule
-service.add_project(ProjectSchedule(
-    project_id="docs",
-    name="Documentation",
-    cron_expression="*/30 * * * *",
-    timezone="UTC",
-    urls=["https://docs.example.com/"],
-    enabled=True,
-))
+service.add_project(
+    ProjectSchedule(
+        project_id="docs",
+        name="Documentation",
+        cron_expression="*/30 * * * *",
+        timezone="UTC",
+        urls=["https://docs.example.com/"],
+        enabled=True,
+    )
+)
 
 # List scheduled projects
 for project in service.list_projects():
@@ -211,7 +215,11 @@ report = detector.detect(
     project_id="my-project",
     current_results={
         "https://example.com/": [
-            {"url": "https://example.com/old-page", "status": 404, "reason": "Not Found"},
+            {
+                "url": "https://example.com/old-page",
+                "status": 404,
+                "reason": "Not Found",
+            },
             {"url": "https://example.com/good-page", "status": 200, "reason": "OK"},
         ]
     },
@@ -245,12 +253,14 @@ from brokenlinkbrief.scheduled_scan import ScheduledScanExecutor
 
 executor = ScheduledScanExecutor(max_retries=3, retry_delay=1.0)
 
-result = executor.execute_scan({
-    "id": "my-project",
-    "name": "My website",
-    "urls": ["https://example.com/", "https://example.com/docs"],
-    "options": {"timeout": 10.0, "max_workers": 5},
-})
+result = executor.execute_scan(
+    {
+        "id": "my-project",
+        "name": "My website",
+        "urls": ["https://example.com/", "https://example.com/docs"],
+        "options": {"timeout": 10.0, "max_workers": 5},
+    }
+)
 
 print(f"Status: {result.status}")
 print(f"Links checked: {result.total_links}")

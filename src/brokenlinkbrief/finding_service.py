@@ -1,4 +1,5 @@
 """Application service for evidence-aware finding and verification workflows."""
+
 from __future__ import annotations
 
 from threading import Lock
@@ -43,9 +44,7 @@ class FindingService:
             failures: list[dict[str, str]] = []
             for source, body in source_bodies.items():
                 if body is None:
-                    failures.append(
-                        {"source_url": source, "error": "fetch-failed"}
-                    )
+                    failures.append({"source_url": source, "error": "fetch-failed"})
                     continue
                 checked += 1
                 present = any(

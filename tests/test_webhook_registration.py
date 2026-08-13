@@ -13,6 +13,7 @@ State at authoring time (pre-tester, t_42a2d5a3):
   adds ``do_POST`` to ``_Handler``.
 - Unit-level tests against ``WebhookRegistry`` directly should PASS.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -30,6 +31,7 @@ from brokenlinkbrief.webhook import WebhookRegistry
 # ---------------------------------------------------------------------------
 # Interface tests — check structural existence.
 # ---------------------------------------------------------------------------
+
 
 def test_interface_handler_has_do_post() -> None:
     """_Handler must expose a do_POST method for POST /webhooks."""
@@ -59,6 +61,7 @@ def test_interface_webhook_registry_register_signature() -> None:
 # ---------------------------------------------------------------------------
 # Behavioral tests — WebhookRegistry unit level (should PASS).
 # ---------------------------------------------------------------------------
+
 
 def test_behavior_register_valid_https_url() -> None:
     """Registering a valid HTTPS URL must succeed and return a registration."""
@@ -132,6 +135,7 @@ def test_behavior_remove_nonexistent_returns_false() -> None:
 # ---------------------------------------------------------------------------
 # Behavioral tests — HTTP endpoint (expect FAIL until do_POST is added).
 # ---------------------------------------------------------------------------
+
 
 def _start_server(monkeypatch):  # noqa: D401
     """Helper: start a temp server with token auth enabled."""

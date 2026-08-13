@@ -1,4 +1,5 @@
 """Versioned project and exact-host scan policies."""
+
 from __future__ import annotations
 
 import hashlib
@@ -226,10 +227,7 @@ class ScanPolicyStore:
             )
             db.executemany(
                 "INSERT INTO scan_policy_host_overrides VALUES (?,?,?)",
-                [
-                    (cur.lastrowid, h, json.dumps(o, sort_keys=True))
-                    for h, o in clean
-                ],
+                [(cur.lastrowid, h, json.dumps(o, sort_keys=True)) for h, o in clean],
             )
         return self.get(project_id)
 

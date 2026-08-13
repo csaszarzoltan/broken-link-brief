@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 
@@ -35,10 +36,12 @@ def test_occurrence_preserves_source_anchor_and_context(tmp_path: Path) -> None:
 
 
 def test_403_then_success_is_bot_blocked_not_broken() -> None:
-    result = classify_evidence([
-        ProbeAttempt("HEAD", 403, None, 0.1),
-        ProbeAttempt("GET_BROWSER", 200, None, 0.2),
-    ])
+    result = classify_evidence(
+        [
+            ProbeAttempt("HEAD", 403, None, 0.1),
+            ProbeAttempt("GET_BROWSER", 200, None, 0.2),
+        ]
+    )
     assert result.classification == "BOT_BLOCKED"
 
 
@@ -75,23 +78,29 @@ def test_ci_fails_only_for_new_confirmed_findings(tmp_path: Path) -> None:
 
 
 def test_invalid_timezone_is_rejected(tmp_path: Path) -> None:
-    with pytest.raises(Exception):
-        ScheduleStore(tmp_path / "s.db").create("p", "daily", "Not/AZone", next_due_at=1)
+    with pytest.raises(ZoneInfoNotFoundError, match="Not/AZone"):
+        ScheduleStore(tmp_path / "s.db").create(
+            "p", "daily", "Not/AZone", next_due_at=1
+        )
 
 
 def test_duplicate_assignment_is_rejected(tmp_path: Path) -> None:
     store = FindingStore(tmp_path / "f.db")
-    finding = store.record(extract_occurrences("https://e.test", '<a href="/x">x</a>')[0], 404)
+    finding = store.record(
+        extract_occurrences("https://e.test", '<a href="/x">x</a>')[0], 404
+    )
     store.assign(finding.id, "alice")
     with pytest.raises(ValueError, match="TRIAGE_ASSIGNMENT_CONFLICT"):
         store.assign(finding.id, "bob")
 
 
 def test_repeated_terminal_status_is_confirmed() -> None:
-    assessment = classify_evidence([
-        ProbeAttempt("HEAD", 404, None, 0.1),
-        ProbeAttempt("GET", 404, None, 0.2),
-    ])
+    assessment = classify_evidence(
+        [
+            ProbeAttempt("HEAD", 404, None, 0.1),
+            ProbeAttempt("GET", 404, None, 0.2),
+        ]
+    )
     assert assessment.classification == "CONFIRMED_BROKEN"
 
 

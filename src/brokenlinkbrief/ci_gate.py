@@ -1,4 +1,5 @@
 """Deterministic CI baseline evaluation and exit-code contract."""
+
 from __future__ import annotations
 
 import json

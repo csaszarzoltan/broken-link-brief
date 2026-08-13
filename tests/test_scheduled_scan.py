@@ -3,6 +3,7 @@
 Interface tests: verify module loads, class exists, method signatures correct.
 Behavioral tests: expected behavior that raises NotImplementedError until implemented.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -16,6 +17,7 @@ from brokenlinkbrief.scheduled_scan import ScanResult, ScheduledScanExecutor
 # ============================================================================
 # FIXTURES
 # ============================================================================
+
 
 @pytest.fixture
 def sample_project_config() -> dict:
@@ -47,7 +49,11 @@ def project_config_with_notifications() -> dict:
         },
         "notifications": [
             {"type": "email", "target": "ops@example.com"},
-            {"type": "slack", "target": "#alerts", "webhook_url": "https://hooks.slack.com/xxx"},
+            {
+                "type": "slack",
+                "target": "#alerts",
+                "webhook_url": "https://hooks.slack.com/xxx",
+            },
         ],
         "options": {
             "timeout": 15.0,
@@ -61,12 +67,32 @@ def sample_batch_results() -> dict:
     """Simulated scan_batch return value (url -> list of LinkResult dicts)."""
     return {
         "https://example.com": [
-            {"url": "https://example.com/style.css", "status": 200, "reason": "OK", "location": None},
-            {"url": "https://example.com/missing.js", "status": 404, "reason": "Not Found", "location": None},
+            {
+                "url": "https://example.com/style.css",
+                "status": 200,
+                "reason": "OK",
+                "location": None,
+            },
+            {
+                "url": "https://example.com/missing.js",
+                "status": 404,
+                "reason": "Not Found",
+                "location": None,
+            },
         ],
         "https://example.com/api": [
-            {"url": "https://example.com/api/health", "status": 200, "reason": "OK", "location": None},
-            {"url": "https://example.com/api/docs", "status": 503, "reason": "Service Unavailable", "location": None},
+            {
+                "url": "https://example.com/api/health",
+                "status": 200,
+                "reason": "OK",
+                "location": None,
+            },
+            {
+                "url": "https://example.com/api/docs",
+                "status": 503,
+                "reason": "Service Unavailable",
+                "location": None,
+            },
         ],
     }
 
@@ -95,12 +121,14 @@ def minimal_project_config() -> dict:
 # SECTION 1: IMPORT & CLASS EXISTENCE TESTS (should PASS immediately)
 # ============================================================================
 
+
 class TestModuleImport:
     """Verify module loads and classes are accessible."""
 
     def test_module_importable(self):
         """scheduled_scan module imports without error."""
         from brokenlinkbrief import scheduled_scan
+
         assert scheduled_scan is not None
 
     def test_executor_class_exists(self):
@@ -123,6 +151,7 @@ class TestModuleImport:
 # ============================================================================
 # SECTION 2: ScanResult DATACLASS FIELD TESTS (should PASS immediately)
 # ============================================================================
+
 
 class TestScanResultFields:
     """Verify ScanResult dataclass has all required fields."""
@@ -190,6 +219,7 @@ class TestScanResultFields:
 # ============================================================================
 # SECTION 3: SIGNATURE / INTERFACE TESTS (should PASS immediately)
 # ============================================================================
+
 
 class TestScheduledScanExecutorSignature:
     """Verify method signatures match the expected interface."""
@@ -271,6 +301,7 @@ class TestScheduledScanExecutorSignature:
 # SECTION 4: BEHAVIORAL TESTS — EXECUTOR INIT (RED phase)
 # ============================================================================
 
+
 class TestExecutorInit:
     """Behavioral tests for ScheduledScanExecutor initialization."""
 
@@ -298,9 +329,11 @@ class TestExecutorInit:
             pytest.skip("Not implemented yet — RED phase")
         assert executor.retry_delay == 2.5
 
+
 # ============================================================================
 # SECTION 5: BEHAVIORAL TESTS — EXECUTE_SCAN (RED phase)
 # ============================================================================
+
 
 class TestExecuteScan:
     """Behavioral tests for the main execute_scan method."""
@@ -444,9 +477,11 @@ class TestExecuteScan:
             pytest.skip("Not implemented yet — RED phase")
         assert result.total_links >= 0
 
+
 # ============================================================================
 # SECTION 6: BEHAVIORAL TESTS — RETRY LOGIC (RED phase)
 # ============================================================================
+
 
 class TestRetryLogic:
     """Behavioral tests for _run_batch_with_retry."""
@@ -494,9 +529,11 @@ class TestRetryLogic:
             pytest.skip("Not implemented yet — RED phase")
         assert result == {}
 
+
 # ============================================================================
 # SECTION 7: BEHAVIORAL TESTS — REGRESSION DETECTION (RED phase)
 # ============================================================================
+
 
 class TestRegressionDetection:
     """Behavioral tests for _detect_regressions."""
@@ -519,8 +556,22 @@ class TestRegressionDetection:
         try:
             executor = ScheduledScanExecutor()
             current = {
-                "https://a.com": [{"url": "https://a.com", "status": 404, "reason": "Not Found", "location": None}],
-                "https://b.com": [{"url": "https://b.com", "status": 200, "reason": "OK", "location": None}],
+                "https://a.com": [
+                    {
+                        "url": "https://a.com",
+                        "status": 404,
+                        "reason": "Not Found",
+                        "location": None,
+                    }
+                ],
+                "https://b.com": [
+                    {
+                        "url": "https://b.com",
+                        "status": 200,
+                        "reason": "OK",
+                        "location": None,
+                    }
+                ],
             }
             previous = [
                 {"url": "https://a.com", "status": 200},
@@ -537,7 +588,14 @@ class TestRegressionDetection:
         try:
             executor = ScheduledScanExecutor()
             current = {
-                "https://a.com": [{"url": "https://a.com", "status": 200, "reason": "OK", "location": None}],
+                "https://a.com": [
+                    {
+                        "url": "https://a.com",
+                        "status": 200,
+                        "reason": "OK",
+                        "location": None,
+                    }
+                ],
             }
             previous = [{"url": "https://a.com", "status": 200}]
             count, _flags = executor._detect_regressions(current, previous)
@@ -550,7 +608,14 @@ class TestRegressionDetection:
         try:
             executor = ScheduledScanExecutor()
             current = {
-                "https://a.com": [{"url": "https://a.com", "status": 200, "reason": "OK", "location": None}],
+                "https://a.com": [
+                    {
+                        "url": "https://a.com",
+                        "status": 200,
+                        "reason": "OK",
+                        "location": None,
+                    }
+                ],
             }
             previous = [{"url": "https://a.com", "status": 500}]
             count, _flags = executor._detect_regressions(current, previous)
@@ -558,9 +623,11 @@ class TestRegressionDetection:
             pytest.skip("Not implemented yet — RED phase")
         assert count == 0
 
+
 # ============================================================================
 # SECTION 8: BEHAVIORAL TESTS — IS_LINK_BROKEN (RED phase)
 # ============================================================================
+
 
 class TestIsLinkBroken:
     """Behavioral tests for _is_link_broken helper."""
@@ -590,7 +657,9 @@ class TestIsLinkBroken:
         """None status with a reason (timeout/fetch failure) is broken."""
         try:
             executor = ScheduledScanExecutor()
-            assert executor._is_link_broken({"status": None, "reason": "timeout"}) is True
+            assert (
+                executor._is_link_broken({"status": None, "reason": "timeout"}) is True
+            )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
 
@@ -609,9 +678,11 @@ class TestIsLinkBroken:
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
 
+
 # ============================================================================
 # SECTION 9: BEHAVIORAL TESTS — FORMAT REGRESSION FLAGS (RED phase)
 # ============================================================================
+
 
 class TestFormatRegressionFlags:
     """Behavioral tests for _format_regression_flags."""
@@ -657,9 +728,11 @@ class TestFormatRegressionFlags:
             pytest.skip("Not implemented yet — RED phase")
         assert any("status_change" in f for f in flags)
 
+
 # ============================================================================
 # SECTION 10: BEHAVIORAL TESTS — COMPUTE_SUMMARY (RED phase)
 # ============================================================================
+
 
 class TestComputeSummary:
     """Behavioral tests for _compute_summary."""
@@ -668,7 +741,16 @@ class TestComputeSummary:
         try:
             executor = ScheduledScanExecutor()
             result = executor._compute_summary(
-                {"https://a.com": [{"url": "https://a.com", "status": 200, "reason": "OK", "location": None}]},
+                {
+                    "https://a.com": [
+                        {
+                            "url": "https://a.com",
+                            "status": 200,
+                            "reason": "OK",
+                            "location": None,
+                        }
+                    ]
+                },
                 "proj1",
                 "Test",
                 time.time(),
@@ -682,8 +764,22 @@ class TestComputeSummary:
         try:
             executor = ScheduledScanExecutor()
             results = {
-                "https://a.com": [{"url": "https://a.com", "status": 200, "reason": "OK", "location": None}],
-                "https://b.com": [{"url": "https://b.com", "status": 404, "reason": "Not Found", "location": None}],
+                "https://a.com": [
+                    {
+                        "url": "https://a.com",
+                        "status": 200,
+                        "reason": "OK",
+                        "location": None,
+                    }
+                ],
+                "https://b.com": [
+                    {
+                        "url": "https://b.com",
+                        "status": 404,
+                        "reason": "Not Found",
+                        "location": None,
+                    }
+                ],
             }
             result = executor._compute_summary(results, "p1", "Test", time.time())
         except NotImplementedError:
@@ -696,8 +792,18 @@ class TestComputeSummary:
             executor = ScheduledScanExecutor()
             results = {
                 "https://a.com": [
-                    {"url": "https://a.com/ok", "status": 200, "reason": "OK", "location": None},
-                    {"url": "https://a.com/bad", "status": 500, "reason": "Error", "location": None},
+                    {
+                        "url": "https://a.com/ok",
+                        "status": 200,
+                        "reason": "OK",
+                        "location": None,
+                    },
+                    {
+                        "url": "https://a.com/bad",
+                        "status": 500,
+                        "reason": "Error",
+                        "location": None,
+                    },
                 ],
             }
             result = executor._compute_summary(results, "p1", "Test", time.time())
@@ -726,7 +832,9 @@ class TestComputeSummary:
     def test_project_id_and_name_set(self):
         try:
             executor = ScheduledScanExecutor()
-            result = executor._compute_summary({}, "proj_xyz", "My Project", time.time())
+            result = executor._compute_summary(
+                {}, "proj_xyz", "My Project", time.time()
+            )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         assert result.project_id == "proj_xyz"
@@ -737,8 +845,14 @@ class TestComputeSummary:
         try:
             executor = ScheduledScanExecutor()
             result = executor._compute_summary(
-                {"https://a.com": [{"url": "a", "status": 200, "reason": "OK", "location": None}]},
-                "p1", "Test", time.time(),
+                {
+                    "https://a.com": [
+                        {"url": "a", "status": 200, "reason": "OK", "location": None}
+                    ]
+                },
+                "p1",
+                "Test",
+                time.time(),
             )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
@@ -754,9 +868,11 @@ class TestComputeSummary:
             pytest.skip("Not implemented yet — RED phase")
         assert result.duration_seconds >= 0.9
 
+
 # ============================================================================
 # SECTION 11: BEHAVIORAL TESTS — PARTIAL FAILURE HANDLING (RED phase)
 # ============================================================================
+
 
 class TestPartialFailure:
     """Behavioral tests for handling partial scan failures."""
@@ -795,6 +911,7 @@ class TestPartialFailure:
 # ============================================================================
 # SECTION 12: BEHAVIORAL TESTS — SCAN_HISTORY COMPATIBILITY (RED phase)
 # ============================================================================
+
 
 class TestScanHistoryCompatibility:
     """Verify ScanResult fields match scan_history table schema."""
@@ -843,11 +960,18 @@ class TestScanHistoryCompatibility:
         try:
             executor = ScheduledScanExecutor()
             result = executor._compute_summary(
-                {"https://a.com": [{"url": "a", "status": 200, "reason": "OK", "location": None}]},
-                "p1", "Test", time.time(),
+                {
+                    "https://a.com": [
+                        {"url": "a", "status": 200, "reason": "OK", "location": None}
+                    ]
+                },
+                "p1",
+                "Test",
+                time.time(),
             )
         except NotImplementedError:
             pytest.skip("Not implemented yet — RED phase")
         import json
+
         # Should not raise
         json.dumps(result.raw_results)

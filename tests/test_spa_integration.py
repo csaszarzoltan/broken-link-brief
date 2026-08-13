@@ -10,6 +10,7 @@ Tests cover the full pipeline:
 
 Uses pytest fixtures for server lifecycle (setup/teardown).
 """
+
 from __future__ import annotations
 
 import http.server
@@ -296,10 +297,7 @@ class TestDiffDetectorIntegration:
 
         # Scan 1: link is healthy
         scan1 = spa_scanner.scan_page(url, render_js=True)
-        scan1_dicts = [
-            {"url": r.url, "status": 200, "reason": None}
-            for r in scan1
-        ]
+        scan1_dicts = [{"url": r.url, "status": 200, "reason": None} for r in scan1]
         link_state_store.upsert_links(project_id, url, scan1_dicts)
 
         # Scan 2: same links but link A is now broken (404)
@@ -339,10 +337,7 @@ class TestDiffAlerterIntegration:
 
         # Scan 1: link is healthy
         scan1 = spa_scanner.scan_page(url, render_js=True)
-        scan1_dicts = [
-            {"url": r.url, "status": 200, "reason": None}
-            for r in scan1
-        ]
+        scan1_dicts = [{"url": r.url, "status": 200, "reason": None} for r in scan1]
         link_state_store.upsert_links(project_id, url, scan1_dicts)
 
         # Scan 2: link A goes broken
@@ -401,10 +396,7 @@ class TestDiffAlerterIntegration:
         url = f"{spa_fixture_server}/spa_state1.html"
 
         scan1 = spa_scanner.scan_page(url, render_js=True)
-        scan1_dicts = [
-            {"url": r.url, "status": 200, "reason": None}
-            for r in scan1
-        ]
+        scan1_dicts = [{"url": r.url, "status": 200, "reason": None} for r in scan1]
         link_state_store.upsert_links(project_id, url, scan1_dicts)
 
         scan2_dicts = [
@@ -439,10 +431,7 @@ class TestRegressionDetectorIntegration:
 
         # Scan 1: all healthy
         scan1 = spa_scanner.scan_page(url, render_js=True)
-        scan1_dicts = [
-            {"url": r.url, "status": 200, "reason": None}
-            for r in scan1
-        ]
+        scan1_dicts = [{"url": r.url, "status": 200, "reason": None} for r in scan1]
 
         # Scan 2: link A broken
         scan2_dicts = [
@@ -484,10 +473,7 @@ class TestRegressionDetectorIntegration:
         url = f"{spa_fixture_server}/spa_state1.html"
 
         scan = spa_scanner.scan_page(url, render_js=True)
-        scan_dicts = [
-            {"url": r.url, "status": 200, "reason": None}
-            for r in scan
-        ]
+        scan_dicts = [{"url": r.url, "status": 200, "reason": None} for r in scan]
 
         scan_history = [
             {

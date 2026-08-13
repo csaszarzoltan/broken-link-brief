@@ -5,22 +5,24 @@ Three-layer pre-dev test pattern:
   Layer 2: Signature/interface (PASS immediately)
   Layer 3: Behavioral validation (FAIL with NotImplementedError until implemented)
 """
+
 from __future__ import annotations
 
 import inspect
 import json
-import pytest
 from dataclasses import fields
 from pathlib import Path
 from textwrap import dedent
 
+import pytest
+
 from brokenlinkbrief.scheduler_config import (
-    ProjectConfig,
     NotificationConfig,
-    ScheduleConfig,
+    ProjectConfig,
     ProjectOptions,
-    validate_project_config,
+    ScheduleConfig,
     load_projects_config,
+    validate_project_config,
 )
 
 
@@ -54,6 +56,7 @@ class TestDataclassStructure:
 
     def test_project_config_is_dataclass(self) -> None:
         from dataclasses import is_dataclass
+
         assert is_dataclass(ProjectConfig)
 
     def test_project_config_fields(self) -> None:
@@ -148,7 +151,11 @@ class TestProjectConfigValidation:
             },
             "notifications": [
                 {"type": "email", "target": "ops@example.com"},
-                {"type": "slack", "target": "#alerts", "webhook_url": "https://hooks.slack.com/xxx"},
+                {
+                    "type": "slack",
+                    "target": "#alerts",
+                    "webhook_url": "https://hooks.slack.com/xxx",
+                },
             ],
             "options": {
                 "timeout": 15.0,
@@ -349,7 +356,9 @@ class TestProjectConfigValidation:
             "name": "Site",
             "urls": ["https://example.com"],
             "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
-            "notifications": [{"type": "webhook", "target": "https://example.com/hook"}],
+            "notifications": [
+                {"type": "webhook", "target": "https://example.com/hook"}
+            ],
         }
         try:
             with pytest.raises(ValueError, match="webhook.*webhook_url"):
@@ -364,7 +373,8 @@ class TestLoadProjectsConfig:
     def test_load_yaml_config(self, tmp_path: Path) -> None:
         """Load valid YAML config file."""
         config_path = tmp_path / "projects.yaml"
-        config_path.write_text(dedent("""
+        config_path.write_text(
+            dedent("""
             version: "1.0"
             projects:
               - name: "Site"
@@ -372,7 +382,8 @@ class TestLoadProjectsConfig:
                 schedule:
                   cron: "0 9 * * *"
                   timezone: "UTC"
-        """))
+        """)
+        )
         try:
             projects = load_projects_config(config_path)
         except NotImplementedError:
@@ -383,14 +394,20 @@ class TestLoadProjectsConfig:
     def test_load_json_config(self, tmp_path: Path) -> None:
         """Load valid JSON config file."""
         config_path = tmp_path / "projects.json"
-        config_path.write_text(json.dumps({
-            "version": "1.0",
-            "projects": [{
-                "name": "Site",
-                "urls": ["https://example.com"],
-                "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
-            }],
-        }))
+        config_path.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "projects": [
+                        {
+                            "name": "Site",
+                            "urls": ["https://example.com"],
+                            "schedule": {"cron": "0 9 * * *", "timezone": "UTC"},
+                        }
+                    ],
+                }
+            )
+        )
         try:
             projects = load_projects_config(config_path)
         except NotImplementedError:
@@ -401,14 +418,16 @@ class TestLoadProjectsConfig:
     def test_missing_version_rejected(self, tmp_path: Path) -> None:
         """Config without version raises ValueError."""
         config_path = tmp_path / "projects.yaml"
-        config_path.write_text(dedent("""
+        config_path.write_text(
+            dedent("""
             projects:
               - name: "Site"
                 urls: ["https://example.com"]
                 schedule:
                   cron: "0 9 * * *"
                   timezone: "UTC"
-        """))
+        """)
+        )
         try:
             with pytest.raises(ValueError, match="version.*required"):
                 load_projects_config(config_path)
@@ -418,10 +437,12 @@ class TestLoadProjectsConfig:
     def test_unsupported_version_rejected(self, tmp_path: Path) -> None:
         """Config with unsupported version raises ValueError."""
         config_path = tmp_path / "projects.yaml"
-        config_path.write_text(dedent("""
+        config_path.write_text(
+            dedent("""
             version: "99.0"
             projects: []
-        """))
+        """)
+        )
         try:
             with pytest.raises(ValueError, match="version.*unsupported"):
                 load_projects_config(config_path)

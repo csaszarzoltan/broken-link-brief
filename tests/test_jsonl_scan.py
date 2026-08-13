@@ -14,6 +14,7 @@ State at authoring time (pre-tester, t_aa1183e2):
 - Therefore ALL behavioral tests are expected to FAIL against the stubs and
   PASS only after the developer wires the route and implements ``render_jsonl``.
 """
+
 from __future__ import annotations
 
 import http.client
@@ -34,15 +35,18 @@ from brokenlinkbrief.package import LinkResult
 # exists as a callable with the correct signature without invoking it.
 # ---------------------------------------------------------------------------
 
+
 def test_interface_render_jsonl_importable() -> None:
     """render_jsonl must be importable from the package module."""
     from brokenlinkbrief.package import render_jsonl
+
     assert callable(render_jsonl)
 
 
 def test_interface_render_jsonl_signature_matches_contract() -> None:
     """render_jsonl(results: list[LinkResult]) -> str"""
     from brokenlinkbrief.package import render_jsonl
+
     signature = inspect.signature(render_jsonl)
     params = list(signature.parameters.values())
     assert len(params) == 1
@@ -50,7 +54,7 @@ def test_interface_render_jsonl_signature_matches_contract() -> None:
     assert str(signature.return_annotation) == "str"
 
 
-def test_interface_scan_handler_exposes_do_GET() -> None:
+def test_interface_scan_handler_exposes_do_get() -> None:
     """_Handler must have a do_GET method (shared by all /scan formats)."""
     assert callable(getattr(_Handler, "do_GET", None))
 
@@ -60,6 +64,7 @@ def test_interface_scan_handler_exposes_do_GET() -> None:
 # These will FAIL against the NotImplementedError stubs and PASS only after
 # the developer implements render_jsonl and wires format=jsonl in app.py.
 # ---------------------------------------------------------------------------
+
 
 def _start_server(monkeypatch):  # noqa: D401
     """Helper: start a temp server with monkeypatched scan_page."""

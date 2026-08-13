@@ -5,6 +5,7 @@ comparing current scan results against historical scan data, and
 formatting regression/resolution alerts.
 
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -122,17 +123,21 @@ class RegressionDetector:
                     entry["previous_status"] = prev["status"]
                 new_broken.append(entry)
             elif classification == "resolved":
-                resolved.append({
-                    "url": url,
-                    "previous_status": prev.get("status") if prev else None,
-                    "current_status": curr.get("status") if curr else None,
-                })
+                resolved.append(
+                    {
+                        "url": url,
+                        "previous_status": prev.get("status") if prev else None,
+                        "current_status": curr.get("status") if curr else None,
+                    }
+                )
             elif classification == "status_change":
-                status_changes.append({
-                    "url": url,
-                    "previous_status": prev.get("status") if prev else None,
-                    "current_status": curr.get("status") if curr else None,
-                })
+                status_changes.append(
+                    {
+                        "url": url,
+                        "previous_status": prev.get("status") if prev else None,
+                        "current_status": curr.get("status") if curr else None,
+                    }
+                )
 
         has_regressions = bool(new_broken or status_changes)
 
@@ -147,9 +152,7 @@ class RegressionDetector:
             has_regressions=has_regressions,
         )
 
-    def _empty_report(
-        self, project_id: str, ts: str
-    ) -> RegressionReport:
+    def _empty_report(self, project_id: str, ts: str) -> RegressionReport:
         """Return a RegressionReport with no changes."""
         return RegressionReport(
             project_id=project_id,
@@ -166,10 +169,7 @@ class RegressionDetector:
         self, scan_history: list[dict[str, Any]]
     ) -> dict[str, Any] | None:
         """Return the most recent completed scan from history, or None."""
-        completed = [
-            s for s in scan_history
-            if s.get("status") == "completed"
-        ]
+        completed = [s for s in scan_history if s.get("status") == "completed"]
         if not completed:
             return None
         return max(completed, key=lambda s: s.get("scan_timestamp", ""))

@@ -1,4 +1,5 @@
 """Application service for durable project scan jobs."""
+
 from __future__ import annotations
 
 import threading
@@ -57,9 +58,7 @@ class JobService:
         self._wake.set()
         return job
 
-    def _heartbeat_loop(
-        self, job: dict, worker_id: str, stop: threading.Event
-    ) -> None:
+    def _heartbeat_loop(self, job: dict, worker_id: str, stop: threading.Event) -> None:
         """Heartbeat the job lease until told to stop."""
         while not stop.wait(self.heartbeat_interval):
             try:

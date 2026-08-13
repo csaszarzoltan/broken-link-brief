@@ -3,6 +3,7 @@
 Provides ScheduledScanExecutor for orchestrating scheduled scans with
 retry logic, regression detection, and result aggregation.
 """
+
 from __future__ import annotations
 
 import time
@@ -16,6 +17,7 @@ from brokenlinkbrief.package import scan_batch
 # ---------------------------------------------------------------------------
 # ScanResult — result of a scheduled scan execution
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class ScanResult:
@@ -55,6 +57,7 @@ class ScanResult:
 # ---------------------------------------------------------------------------
 # ScheduledScanExecutor — orchestrate scans with retries
 # ---------------------------------------------------------------------------
+
 
 class ScheduledScanExecutor:
     """Execute scheduled scans with retry logic and regression detection.

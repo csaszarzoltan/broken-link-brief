@@ -5,6 +5,7 @@ Three-layer test pattern:
   Layer 2: Signature/interface (PASS immediately)
   Layer 3: Behavioral (FAIL with NotImplementedError — RED phase)
 """
+
 from __future__ import annotations
 
 import inspect
@@ -59,9 +60,15 @@ class TestDiffReportStructure:
     def test_diff_report_fields(self) -> None:
         field_names = {f.name for f in fields(DiffReport)}
         expected = {
-            "project_id", "target_url", "timestamp",
-            "new_broken", "resolved", "status_changes",
-            "new_links", "removed_links", "has_changes",
+            "project_id",
+            "target_url",
+            "timestamp",
+            "new_broken",
+            "resolved",
+            "status_changes",
+            "new_links",
+            "removed_links",
+            "has_changes",
         }
         assert expected == field_names
 
@@ -80,7 +87,8 @@ class TestDiffReportStructure:
 
     def test_diff_report_is_frozen(self) -> None:
         report = DiffReport(
-            project_id="p1", target_url="http://x.com",
+            project_id="p1",
+            target_url="http://x.com",
             timestamp="2026-01-01T00:00:00",
         )
         with pytest.raises(AttributeError):
@@ -96,20 +104,33 @@ class TestLinkStateRecordStructure:
     def test_link_state_record_fields(self) -> None:
         field_names = {f.name for f in fields(LinkStateRecord)}
         expected = {
-            "id", "project_id", "target_url", "link_url",
-            "status", "reason", "location",
-            "first_seen", "last_seen", "last_changed", "scan_mode",
+            "id",
+            "project_id",
+            "target_url",
+            "link_url",
+            "status",
+            "reason",
+            "location",
+            "first_seen",
+            "last_seen",
+            "last_changed",
+            "scan_mode",
         }
         assert expected == field_names
 
     def test_link_state_record_defaults(self) -> None:
         rec = LinkStateRecord(
-            id="r1", project_id="p1", target_url="http://example.com",
-            link_url="http://example.com/about", status=200,
-            reason=None, location=None,
+            id="r1",
+            project_id="p1",
+            target_url="http://example.com",
+            link_url="http://example.com/about",
+            status=200,
+            reason=None,
+            location=None,
             first_seen="2026-01-01T00:00:00",
             last_seen="2026-01-01T00:00:00",
-            last_changed=None, scan_mode="static",
+            last_changed=None,
+            scan_mode="static",
         )
         assert rec.scan_mode == "static"
         assert rec.reason is None
@@ -202,7 +223,11 @@ def sample_current_scan() -> list[dict[str, Any]]:
     return [
         {"url": "http://example.com/ok", "status": 200, "reason": None},
         {"url": "http://example.com/broken", "status": 200, "reason": None},  # fixed
-        {"url": "http://example.com/changed", "status": 404, "reason": "not found"},  # changed
+        {
+            "url": "http://example.com/changed",
+            "status": 404,
+            "reason": "not found",
+        },  # changed
         {"url": "http://example.com/new", "status": 200, "reason": None},  # new
     ]
 
@@ -260,7 +285,11 @@ class TestDiffDetectorBehavior:
         # Create a scan where a previously-healthy link becomes broken
         current_with_new_broken = [
             {"url": "http://example.com/ok", "status": 200, "reason": None},
-            {"url": "http://example.com/newly-broken", "status": 503, "reason": "unavailable"},
+            {
+                "url": "http://example.com/newly-broken",
+                "status": 503,
+                "reason": "unavailable",
+            },
         ]
         try:
             report = detector.compare(

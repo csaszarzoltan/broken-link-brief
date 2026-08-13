@@ -2,6 +2,7 @@
 
 Usage: BROKENLINKBRIEF_PROJECT_DB=/tmp/pf.db .venv/bin/python tools/_seed_portfolio_demo.py
 """
+
 import os
 import sqlite3
 import sys
@@ -49,9 +50,15 @@ def main() -> None:
     )
     history = ScanHistoryStore(db)
     # older scan for alpha -> only latest counts
-    history.record_scan(alpha.id, total_urls=12, total_links=40, broken_count=3, new_broken_count=1)
-    history.record_scan(alpha.id, total_urls=14, total_links=50, broken_count=5, new_broken_count=2)
-    history.record_scan(beta.id, total_urls=6, total_links=20, broken_count=8, new_broken_count=0)
+    history.record_scan(
+        alpha.id, total_urls=12, total_links=40, broken_count=3, new_broken_count=1
+    )
+    history.record_scan(
+        alpha.id, total_urls=14, total_links=50, broken_count=5, new_broken_count=2
+    )
+    history.record_scan(
+        beta.id, total_urls=6, total_links=20, broken_count=8, new_broken_count=0
+    )
     db.commit()
     db.close()
 

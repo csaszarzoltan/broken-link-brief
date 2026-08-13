@@ -1,4 +1,5 @@
 """Pre-development interface/behavior tests for BrokenLinkBrief CSV export."""
+
 from __future__ import annotations
 
 import csv
@@ -47,7 +48,7 @@ def test_behavior_render_csv_formats_non_empty_results() -> None:
     expected = (
         "url,status,reason,location\n"
         "https://example.com,200,OK,\n"
-        "\"https://example.com/b,ad\",302,moved,\n"
+        '"https://example.com/b,ad",302,moved,\n'
     )
     assert rendered == expected
 

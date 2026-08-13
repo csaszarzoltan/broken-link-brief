@@ -1,4 +1,5 @@
 """Scheduler configuration validation for broken-link-brief."""
+
 from __future__ import annotations
 
 import json
@@ -12,6 +13,7 @@ from brokenlinkbrief.scheduler import parse_cron_expression, validate_timezone
 @dataclass(frozen=True)
 class NotificationConfig:
     """A single notification channel configuration."""
+
     type: str  # email | slack | webhook
     target: str  # email addr, channel name, or URL
     webhook_url: str | None = None
@@ -20,6 +22,7 @@ class NotificationConfig:
 @dataclass(frozen=True)
 class ScheduleConfig:
     """Schedule timing configuration."""
+
     cron: str
     timezone: str
 
@@ -27,6 +30,7 @@ class ScheduleConfig:
 @dataclass(frozen=True)
 class ProjectOptions:
     """Optional project scan settings."""
+
     timeout: float = 10.0
     max_workers: int = 3
 
@@ -34,9 +38,12 @@ class ProjectOptions:
 @dataclass(frozen=True)
 class ProjectConfig:
     """A validated project configuration."""
+
     name: str
     urls: tuple[str, ...] = ()
-    schedule: ScheduleConfig = field(default_factory=lambda: ScheduleConfig(cron="0 9 * * *", timezone="UTC"))
+    schedule: ScheduleConfig = field(
+        default_factory=lambda: ScheduleConfig(cron="0 9 * * *", timezone="UTC")
+    )
     notifications: tuple[NotificationConfig, ...] = ()
     options: ProjectOptions = field(default_factory=ProjectOptions)
 
@@ -67,7 +74,7 @@ def validate_project_config(config: dict[str, Any]) -> ProjectConfig:
     try:
         parse_cron_expression(cron_expr)
     except ValueError as e:
-        raise ValueError(f"Project config 'schedule.cron' is invalid: {e}")
+        raise ValueError(f"Project config 'schedule.cron' is invalid: {e}") from e
     if not validate_timezone(tz):
         raise ValueError(f"Project config 'schedule.timezone' is invalid: {tz}")
     schedule = ScheduleConfig(cron=cron_expr, timezone=tz)
@@ -80,9 +87,17 @@ def validate_project_config(config: dict[str, Any]) -> ProjectConfig:
     )
 
     # Validate notifications
-    notifications = tuple(_build_notification(n) for n in config.get("notifications", []))
+    notifications = tuple(
+        _build_notification(n) for n in config.get("notifications", [])
+    )
 
-    return ProjectConfig(name=name, urls=urls, schedule=schedule, notifications=notifications, options=options)
+    return ProjectConfig(
+        name=name,
+        urls=urls,
+        schedule=schedule,
+        notifications=notifications,
+        options=options,
+    )
 
 
 def _validate_urls(urls: tuple[Any, ...]) -> None:
@@ -112,7 +127,9 @@ def _build_notification(n: Any) -> NotificationConfig:
     if not n_type:
         raise ValueError("notification config 'type' is required")
     if n_type not in ("email", "slack", "webhook"):
-        raise ValueError("notification config 'type' must be one of: email, slack, webhook")
+        raise ValueError(
+            "notification config 'type' must be one of: email, slack, webhook"
+        )
     if n_type == "webhook" and not n.get("webhook_url"):
         raise ValueError("webhook notification config requires 'webhook_url'")
     return NotificationConfig(
@@ -137,6 +154,7 @@ def load_projects_config(path: Path) -> list[ProjectConfig]:
     if p.suffix in (".yml", ".yaml"):
         try:
             import yaml
+
             data = yaml.safe_load(content)
         except ImportError:
             # Fallback: try JSON parsing (YAML is superset of JSON)
@@ -145,13 +163,17 @@ def load_projects_config(path: Path) -> list[ProjectConfig]:
         data = json.loads(content)
 
     if not isinstance(data, dict):
-        raise ValueError("Config file must contain a dictionary with 'version' and 'projects'")
+        raise ValueError(
+            "Config file must contain a dictionary with 'version' and 'projects'"
+        )
 
     version = data.get("version")
     if version is None:
         raise ValueError("Config 'version' is required")
     if version != "1.0":
-        raise ValueError(f"Config 'version' {version!r} is unsupported; only '1.0' is supported")
+        raise ValueError(
+            f"Config 'version' {version!r} is unsupported; only '1.0' is supported"
+        )
 
     projects_raw = data.get("projects")
     if not isinstance(projects_raw, list):

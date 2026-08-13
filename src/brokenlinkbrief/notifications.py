@@ -3,6 +3,7 @@
 Provides rate-limited, configurable notification delivery via
 SMTP email and Slack Incoming Webhooks.
 """
+
 from __future__ import annotations
 
 import json
@@ -141,9 +142,7 @@ class NotifierConfig:
             smtp_user=os.environ.get("BROKENLINKBRIEF_SMTP_USER", ""),
             smtp_password=os.environ.get("BROKENLINKBRIEF_SMTP_PASSWORD", ""),
             smtp_from=os.environ.get("BROKENLINKBRIEF_SMTP_FROM", ""),
-            slack_webhook_url=os.environ.get(
-                "BROKENLINKBRIEF_SLACK_WEBHOOK_URL", ""
-            ),
+            slack_webhook_url=os.environ.get("BROKENLINKBRIEF_SLACK_WEBHOOK_URL", ""),
         )
 
         # Parse notify_on from comma-separated env var (default to all)
@@ -156,9 +155,7 @@ class NotifierConfig:
         if rate_limit_raw:
             config.rate_limit = int(rate_limit_raw)
 
-        rate_interval_raw = os.environ.get(
-            "BROKENLINKBRIEF_NOTIFY_RATE_INTERVAL"
-        )
+        rate_interval_raw = os.environ.get("BROKENLINKBRIEF_NOTIFY_RATE_INTERVAL")
         if rate_interval_raw:
             config.rate_interval = float(rate_interval_raw)
 
@@ -220,12 +217,8 @@ class EmailNotifier:
                     self._config.smtp_host, self._config.smtp_port, timeout=10
                 ) as server:
                     if self._config.smtp_user:
-                        server.login(
-                            self._config.smtp_user, self._config.smtp_password
-                        )
-                    server.sendmail(
-                        self._config.smtp_from, recipients, msg.as_string()
-                    )
+                        server.login(self._config.smtp_user, self._config.smtp_password)
+                    server.sendmail(self._config.smtp_from, recipients, msg.as_string())
             else:
                 # STARTTLS (default 587) or plain SMTP (25)
                 with smtplib.SMTP(
@@ -234,12 +227,8 @@ class EmailNotifier:
                     if self._config.smtp_port == 587:
                         server.starttls()
                     if self._config.smtp_user:
-                        server.login(
-                            self._config.smtp_user, self._config.smtp_password
-                        )
-                    server.sendmail(
-                        self._config.smtp_from, recipients, msg.as_string()
-                    )
+                        server.login(self._config.smtp_user, self._config.smtp_password)
+                    server.sendmail(self._config.smtp_from, recipients, msg.as_string())
             return True
         except (smtplib.SMTPException, ConnectionError, TimeoutError, OSError):
             return False
@@ -258,6 +247,7 @@ class SlackNotifier:
 
     def __init__(self, webhook_url: str) -> None:
         from brokenlinkbrief.webhook import validate_webhook_url
+
         error = validate_webhook_url(webhook_url)
         if error:
             raise ValueError(f"Invalid Slack webhook URL: {error}")
@@ -323,21 +313,11 @@ class NotificationTemplates:
         and timestamp.
         """
         total = len(results)
-        critical = sum(
-            1
-            for r in results
-            if r.status is not None and r.status >= 500
-        )
+        critical = sum(1 for r in results if r.status is not None and r.status >= 500)
         warning = sum(
-            1
-            for r in results
-            if r.status is not None and 400 <= r.status < 500
+            1 for r in results if r.status is not None and 400 <= r.status < 500
         )
-        info = sum(
-            1
-            for r in results
-            if r.status is not None and r.status < 400
-        )
+        info = sum(1 for r in results if r.status is not None and r.status < 400)
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
@@ -373,10 +353,7 @@ class NotificationTemplates:
     def render_empty() -> str:
         """Render a short ``no issues found`` message."""
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        return (
-            f"No broken links found during scan.\n"
-            f"Timestamp: {timestamp}"
-        )
+        return f"No broken links found during scan.\nTimestamp: {timestamp}"
 
 
 # ---------------------------------------------------------------------------
@@ -456,19 +433,13 @@ def notify_all(
 
     # Rate-limit check
     if rate_limiter is not None and not rate_limiter.allow(scanned_url):
-        outcome["email"] = _make_delivery_outcome(
-            "email", False, "rate-limited"
-        )
-        outcome["slack"] = _make_delivery_outcome(
-            "slack", False, "rate-limited"
-        )
+        outcome["email"] = _make_delivery_outcome("email", False, "rate-limited")
+        outcome["slack"] = _make_delivery_outcome("slack", False, "rate-limited")
         return outcome
 
     # Build the summary text (reused by both channels)
     if results:
-        summary_text = NotificationTemplates.render_summary(
-            results, scanned_url
-        )
+        summary_text = NotificationTemplates.render_summary(results, scanned_url)
     else:
         summary_text = NotificationTemplates.render_empty()
 
@@ -482,13 +453,12 @@ def notify_all(
                 body=summary_text,
             )
             outcome["email"] = _make_delivery_outcome(
-                "email", email_sent,
+                "email",
+                email_sent,
                 None if email_sent else "send returned False",
             )
         except Exception as exc:
-            outcome["email"] = _make_delivery_outcome(
-                "email", False, str(exc)
-            )
+            outcome["email"] = _make_delivery_outcome("email", False, str(exc))
     else:
         outcome["email"] = _make_delivery_outcome(
             "email", False, "email not configured"
@@ -509,13 +479,12 @@ def notify_all(
             )
             slack_sent = 200 <= status_code < 300
             outcome["slack"] = _make_delivery_outcome(
-                "slack", slack_sent,
+                "slack",
+                slack_sent,
                 None if slack_sent else f"HTTP {status_code}",
             )
         except Exception as exc:
-            outcome["slack"] = _make_delivery_outcome(
-                "slack", False, str(exc)
-            )
+            outcome["slack"] = _make_delivery_outcome("slack", False, str(exc))
     else:
         outcome["slack"] = _make_delivery_outcome(
             "slack", False, "slack not configured"

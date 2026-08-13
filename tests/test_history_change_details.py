@@ -1,4 +1,5 @@
 """TDD acceptance coverage for actionable history change details."""
+
 from __future__ import annotations
 
 import http.client
@@ -17,15 +18,21 @@ def _server():
 
 def test_timeline_includes_newly_broken_and_fixed_link_details(tmp_path) -> None:
     store = HistoryStore(tmp_path)
-    store.record_scan([
-        LinkResult("https://target.test/a", 200, "OK"),
-        LinkResult("https://target.test/b", 404, "Not Found"),
-    ], "https://source.test")
-    store.record_scan([
-        LinkResult("https://target.test/a", 500, "Server Error"),
-        LinkResult("https://target.test/b", 200, "OK"),
-        LinkResult("https://target.test/c", 404, "Not Found"),
-    ], "https://source.test")
+    store.record_scan(
+        [
+            LinkResult("https://target.test/a", 200, "OK"),
+            LinkResult("https://target.test/b", 404, "Not Found"),
+        ],
+        "https://source.test",
+    )
+    store.record_scan(
+        [
+            LinkResult("https://target.test/a", 500, "Server Error"),
+            LinkResult("https://target.test/b", 200, "OK"),
+            LinkResult("https://target.test/c", 404, "Not Found"),
+        ],
+        "https://source.test",
+    )
 
     latest = store.get_target_timeline("https://source.test", limit=10)[0]
 
@@ -40,14 +47,18 @@ def test_timeline_includes_newly_broken_and_fixed_link_details(tmp_path) -> None
 
 def test_timeline_change_details_are_deterministically_sorted(tmp_path) -> None:
     store = HistoryStore(tmp_path)
-    store.record_scan([
-        LinkResult("https://target.test/z", 404, "Not Found"),
-        LinkResult("https://target.test/a", 404, "Not Found"),
-    ], "https://source.test")
+    store.record_scan(
+        [
+            LinkResult("https://target.test/z", 404, "Not Found"),
+            LinkResult("https://target.test/a", 404, "Not Found"),
+        ],
+        "https://source.test",
+    )
 
     latest = store.get_target_timeline("https://source.test", limit=10)[0]
     assert [item["url"] for item in latest["newly_broken"]] == [
-        "https://target.test/a", "https://target.test/z"
+        "https://target.test/a",
+        "https://target.test/z",
     ]
 
 

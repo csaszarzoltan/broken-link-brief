@@ -1,4 +1,5 @@
 """Acceptance tests for the user-centered 1.1 dashboard and API consistency."""
+
 from __future__ import annotations
 
 import http.client
@@ -19,9 +20,18 @@ def _server():
 
 
 def test_health_reports_package_version(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("brokenlinkbrief.app._check_external_http", lambda: type("C", (), {"name": "external_http", "status": "healthy"})())
-    monkeypatch.setattr("brokenlinkbrief.app._check_history_store", lambda: type("C", (), {"name": "history_store", "status": "healthy"})())
-    monkeypatch.setattr("brokenlinkbrief.app._check_dns_resolution", lambda: type("C", (), {"name": "dns_resolution", "status": "healthy"})())
+    monkeypatch.setattr(
+        "brokenlinkbrief.app._check_external_http",
+        lambda: type("C", (), {"name": "external_http", "status": "healthy"})(),
+    )
+    monkeypatch.setattr(
+        "brokenlinkbrief.app._check_history_store",
+        lambda: type("C", (), {"name": "history_store", "status": "healthy"})(),
+    )
+    monkeypatch.setattr(
+        "brokenlinkbrief.app._check_dns_resolution",
+        lambda: type("C", (), {"name": "dns_resolution", "status": "healthy"})(),
+    )
     assert run_health_checks().version == __version__
 
 
@@ -62,8 +72,13 @@ def test_dashboard_summary_honors_days(monkeypatch: pytest.MonkeyPatch) -> None:
     class Store:
         def get_dashboard_summary(self, since=None, until=None):
             captured["since"] = since
-            return {"total_scans": 0, "total_broken": 0, "total_links": 0,
-                    "unique_urls": 0, "last_scan_timestamp": None}
+            return {
+                "total_scans": 0,
+                "total_broken": 0,
+                "total_links": 0,
+                "unique_urls": 0,
+                "last_scan_timestamp": None,
+            }
 
     monkeypatch.setattr("brokenlinkbrief.app.HistoryStore", Store)
     server = _server()

@@ -8,6 +8,7 @@ State at authoring time (pre-tester, t_42a2d5a3):
 - ``validate_webhook_url`` IS implemented in ``brokenlinkbrief.webhook``.
 - Therefore interface AND behavioral tests are expected to PASS immediately.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -19,6 +20,7 @@ from brokenlinkbrief.webhook import validate_webhook_url
 # ---------------------------------------------------------------------------
 # Interface tests — these MUST pass immediately.
 # ---------------------------------------------------------------------------
+
 
 def test_interface_validate_webhook_url_importable() -> None:
     """validate_webhook_url must be importable from the webhook module."""
@@ -39,6 +41,7 @@ def test_interface_validate_webhook_url_signature_matches_contract() -> None:
 # ---------------------------------------------------------------------------
 # Behavioral tests — blocking private / loopback IPs
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "url",
@@ -122,6 +125,7 @@ def test_behavior_blocks_link_local_169(url: str) -> None:
 # Behavioral tests — blocking non-HTTPS schemes
 # ---------------------------------------------------------------------------
 
+
 def test_behavior_blocks_http_scheme() -> None:
     """HTTP (non-TLS) URLs must be rejected."""
     error = validate_webhook_url("http://example.com/webhook")
@@ -138,6 +142,7 @@ def test_behavior_allows_https_scheme() -> None:
 # ---------------------------------------------------------------------------
 # Behavioral tests — blocking non-http(s) schemes
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     "url",
@@ -158,6 +163,7 @@ def test_behavior_blocks_non_http_schemes(url: str) -> None:
 # ---------------------------------------------------------------------------
 # Behavioral tests — edge cases
 # ---------------------------------------------------------------------------
+
 
 def test_behavior_blocks_missing_hostname() -> None:
     """URLs without a hostname must be rejected."""

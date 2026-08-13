@@ -1,4 +1,5 @@
 """Command-line interface for CI baseline evaluation."""
+
 from __future__ import annotations
 
 import argparse

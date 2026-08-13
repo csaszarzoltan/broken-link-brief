@@ -1,4 +1,5 @@
 """SQLite-backed organizations, RBAC, service credentials and audit."""
+
 from __future__ import annotations
 
 import hashlib
