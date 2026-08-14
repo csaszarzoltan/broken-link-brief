@@ -113,7 +113,7 @@ def test_health_endpoint_has_checks(server: str) -> None:
         assert "status" in check
         assert "latency_ms" in check
         assert check["status"] in ("healthy", "degraded", "unhealthy")
-        assert isinstance(check["latency_ms"], (int, float))
+        assert isinstance(check["latency_ms"], int | float)
 
 
 def test_health_endpoint_response_time(server: str) -> None:

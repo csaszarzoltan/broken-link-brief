@@ -9,10 +9,12 @@ import sqlite3
 import sys
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
+from typing import Any, TextIO
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -201,11 +203,19 @@ def run_health_checks() -> HealthResponse:
     )
 
 
-def _get_log_file():
-    path = __import__("os").environ.get(_LOG_TOKEN_ENV)
+@contextmanager
+def _get_log_file() -> Iterator[TextIO]:
+    """Yield an append-mode log file, or stderr when no log path is configured.
+
+    Used as a context manager so the file is always closed, even when the
+    caller raises (SIM115: open-file-with-context-handler).
+    """
+    path = os.environ.get(_LOG_TOKEN_ENV)
     if path:
-        return open(path, "a", encoding="utf-8")
-    return sys.stderr
+        with open(path, "a", encoding="utf-8") as log_file:
+            yield log_file
+    else:
+        yield sys.stderr
 
 
 def _bearer_token(
@@ -538,13 +548,9 @@ def _log_scan(
         "latency_seconds": round(latency_seconds, 6),
         "status": status,
     }
-    log_file = _get_log_file()
-    try:
+    with _get_log_file() as log_file:
         log_file.write(json.dumps(log_entry) + "\n")
         log_file.flush()
-    finally:
-        if log_file is not sys.stderr:
-            log_file.close()
 
 
 _DASHBOARD_HTML = """<!DOCTYPE html>
@@ -2298,13 +2304,9 @@ def _handle_scan_batch(handler: BaseHTTPRequestHandler) -> None:
         "total_broken": broken_count,
         "latency_seconds": round(latency, 6),
     }
-    log_file = _get_log_file()
-    try:
+    with _get_log_file() as log_file:
         log_file.write(json.dumps(log_entry) + "\n")
         log_file.flush()
-    finally:
-        if log_file is not sys.stderr:
-            log_file.close()
 
     # Format response
     response_format = body.get("format")

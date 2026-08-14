@@ -50,6 +50,18 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 
+[tool.ruff.lint.isort]
+# Explicit first-party package: ruff >=0.6 auto-detects the src/ layout, but
+# older versions (e.g. 0.5.7) do not and mis-classify `brokenlinkbrief`
+# imports as third-party, producing spurious I001. Pinning it makes the
+# import-sorting result identical across ruff versions.
+known-first-party = ["brokenlinkbrief"]
+
+[tool.ruff.lint.pep8-naming]
+# `do_*` methods are the http.server.BaseHTTPRequestHandler protocol — the
+# uppercase verb suffix is the stdlib API contract, not a naming violation.
+ignore-names = ["do_GET", "do_POST", "do_PUT", "do_DELETE", "do_HEAD"]
+
 # E501 remaining lines are all inside string literals (embedded HTML/CSS/SQL
 # templates, test fixtures) that ruff format cannot reflow without changing
 # string content. Verified: 0 non-string lines exceed 88 chars. See
